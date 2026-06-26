@@ -1,0 +1,19 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Local data: append-only event log, vector index, caches
+data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+.cache/
+
+# Local embedding model weights
+models/
+
+# OS / editor
+.DS_Store
+*.swp
