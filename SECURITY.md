@@ -6,8 +6,9 @@ flags on each `deno task`); this file is the rationale and the host contract.
 
 ## 0. Standing on nucklehead
 
-Hand Terminal is hosted on **nucklehead** alongside other applications. Those applications run under
-restrictive policies:
+Hand Terminal is hosted on **nucklehead** alongside other applications. Those applications follow
+restrictive capability heuristics — conventions we hold ourselves to, not policy documents that live
+in their repos:
 
 - **`chores`** — locked down (minimal capability).
 - **`tower-expert`** — extended, but still limited.

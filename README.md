@@ -22,7 +22,12 @@ executable form is the permission flags on the `deno task` definitions in
 
 ```sh
 cp .env.example .env   # fill in keys as phases come online
-deno task start        # boots the skeleton, prints runtime config + coverage gaps
+deno task start        # status: runtime config + coverage gaps
+
+# Stream the keystone source (Bluesky/Jetstream) for a topic:
+deno task start listen wildfire,riverside --limit 10
+deno task start listen --topic config/topics/example.json --limit 10
+
 deno task brief "riverside city council recall"   # stub for the briefing CLI
 ```
 
@@ -34,6 +39,6 @@ deno task check && deno task lint && deno task fmt && deno task test
 
 ## Status
 
-Phase 0 skeleton: project + security policy + Ports + a runnable entrypoint that proves the
-permission posture. Adapters (Bluesky/Jetstream first), corpus, analysis, and briefing land in
-subsequent phases — see the spec's Build Plan.
+Phase 0: project + security policy + Ports + the **Bluesky/Jetstream adapter** (the keystone source)
+streaming normalized `Item`s via `listen`, with unreachable sources reported as coverage gaps (P1).
+Corpus, more sources, analysis, and briefing land in subsequent phases — see the spec's Build Plan.

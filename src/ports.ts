@@ -36,8 +36,13 @@ export interface TopicDefinition {
 /** A source of raw events. Knows about a vendor; knows nothing about clustering. */
 export interface SourcePort {
   readonly name: Item["source"];
-  /** Stream/poll normalized items for a topic within a time window. */
-  fetch(topic: TopicDefinition, since: Date): AsyncIterable<Item>;
+  /**
+   * Stream/poll normalized items for a topic. `since` is an optional lower
+   * bound on event time (e.g. a firehose cursor or a poll watermark); omit it
+   * to start from "now". Lifecycle (cancellation) is owned by the adapter,
+   * typically via an AbortSignal passed at construction.
+   */
+  fetch(topic: TopicDefinition, since?: Date): AsyncIterable<Item>;
 }
 
 /** Storage + retrieval. Knows about Items and vectors; nothing about sources. */
