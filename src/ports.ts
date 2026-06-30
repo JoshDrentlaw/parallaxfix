@@ -160,6 +160,59 @@ export interface ExtractedClaim {
   verify_hint: string | null;
 }
 
+/**
+ * A single piece of provenance (P3): enough to attribute a surfaced statement to
+ * its origin and let a human go check it. The briefing carries one of these for
+ * every item it references, keyed by `item_id`.
+ */
+export interface EvidenceItem {
+  item_id: string;
+  source: Item["source"];
+  author: string | null;
+  /** Permalink to the original (P3). */
+  url: string;
+  created_at: Date;
+  /** A short, whitespace-collapsed snippet of the item's text. */
+  excerpt: string;
+}
+
+/** One narrative in a briefing — a labeled cluster with its claims and exemplars. */
+export interface BriefingNarrative {
+  cluster_id: string;
+  /** Neutral LLM label (P2-safe); may be empty if labeling was skipped. */
+  label: string;
+  /** Items/hour over the recent window — narratives are ordered by this (P5). */
+  velocity: number;
+  size: number;
+  first_seen: Date;
+  /** A few exemplar items (ids into `Briefing.provenance`) — provenance, not proof. */
+  representative_item_ids: string[];
+  /** Claims pulled from this narrative, tagged by evidence type (P4). */
+  claims: Claim[];
+}
+
+/**
+ * The finished artifact (Phase 4). A structured briefing: narratives ranked by
+ * velocity (P5), each claim tagged by evidence type (P4) and linked to
+ * provenance (P3), with the coverage report — what we did and did NOT see (P1) —
+ * foregrounded. `overview` is optional LLM prose: description + evidence only,
+ * never a verdict (P2). Self-contained and serializable.
+ */
+export interface Briefing {
+  topic_id: string;
+  generated_at: Date;
+  /** Narratives, sorted by velocity then size (P5). */
+  narratives: BriefingNarrative[];
+  /** P1, foregrounded — including the blind-spot reference signal. */
+  coverage: CoverageReport;
+  /** Provenance for every referenced item (representatives + claim supporters), by id. */
+  provenance: Record<string, EvidenceItem>;
+  /** Synthesis prose (P2-safe), or null when no LLM was run. */
+  overview: string | null;
+  total_items: number;
+  total_claims: number;
+}
+
 export interface LLMPort {
   /**
    * Per-item claim extraction (Haiku, batched + prompt-cached). Returns the

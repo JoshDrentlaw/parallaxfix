@@ -42,7 +42,9 @@ deno task match  --topic config/topics/riverside-recall.json -k 20 --explain  # 
 # Analysis (clusters → velocity → claims; claim extraction needs ANTHROPIC_API_KEY):
 deno task start analyze --topic config/topics/riverside-recall.json -k 200
 
-deno task brief "riverside city council recall"   # stub for the briefing CLI
+# Briefing (Phase 4): cluster → label → claims → coverage → structured briefing
+deno task brief "riverside city council recall"
+deno task brief --topic config/topics/riverside-recall.json -k 200
 ```
 
 ### Corpus prerequisites (Phase 1)
@@ -88,4 +90,11 @@ blind-spot declaration (never replaces it): it's a measure of _attention_, not c
 can be gamed, so it's surfaced as a lead, not proof. The parallax move — locating the unseen by the
 pull it exerts on the visible.
 
-Briefing synthesis lands next — see the spec's Build Plan.
+Phase 4 (in progress): the **Briefing** — the finale. `brief "<topic>"` reads the stored corpus,
+clusters it into narratives ranked by **velocity** (P5), labels them and extracts **evidence-tagged
+claims** (P4) via Claude, derives the **coverage report** (P1, blind-spot signal included) from what
+the corpus actually holds, and renders one structured briefing: provenance on every surfaced item
+(P3), coverage gaps foregrounded, claims with verify-hints, and an optional synthesis **overview**
+(Sonnet/Opus) that describes and attributes but renders **no verdict and recommends no action**
+(P2). The LLM steps are optional — without `ANTHROPIC_API_KEY` the full structure still prints, with
+labels and prose omitted rather than faked.
