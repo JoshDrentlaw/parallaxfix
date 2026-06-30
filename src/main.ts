@@ -267,6 +267,61 @@ async function gather(args: Args): Promise<number> {
   return 0;
 }
 
+/** Analysis: cluster the corpus into narratives, score velocity, extract claims. */
+async function analyze(args: Args): Promise<number> {
+  const dbUrl = requireDatabaseUrl();
+  if (!dbUrl) return 2;
+
+  const topic = await resolveTopic(args);
+  const k = Number(args.k ?? 200);
+
+  const { PgCorpus } = await import("./corpus/store.ts");
+  const { LocalEmbedder } = await import("./corpus/embed.ts");
+  const { clusterItems } = await import("./analysis/cluster.ts");
+  const { extractClaims } = await import("./analysis/claims.ts");
+
+  const corpus = new PgCorpus({ databaseUrl: dbUrl, embedder: new LocalEmbedder() });
+  let items: Item[];
+  try {
+    items = await corpus.retrieveForAnalysis(topic, k);
+  } finally {
+    await corpus.close();
+  }
+
+  const clusters = clusterItems(items);
+  console.log(`\nNarratives for "${topic.id}" (${clusters.length} from ${items.length} items):`);
+  const itemsById = new Map(items.map((it) => [it.id, it]));
+
+  // Claim extraction is the only paid step — run it only if a key is present.
+  let claims: import("./ports.ts").Claim[] = [];
+  if (Deno.env.get("ANTHROPIC_API_KEY")) {
+    const { AnthropicLLM } = await import("./llm/anthropic.ts");
+    console.log("  (extracting claims via Haiku batch — this can take a while)…");
+    claims = await extractClaims(clusters, itemsById, new AnthropicLLM());
+  } else {
+    console.log("  (ANTHROPIC_API_KEY not set — skipping claim extraction)");
+  }
+
+  for (const [i, c] of clusters.entries()) {
+    const rep = itemsById.get(c.item_ids[0]);
+    console.log(`\n#${i + 1}  velocity ${c.velocity.toFixed(2)}/h · size ${c.size}`);
+    if (rep) {
+      const t = rep.text.replace(/\s+/g, " ").trim();
+      console.log(`  e.g. ${t.length > 160 ? `${t.slice(0, 157)}…` : t}`);
+      console.log(`  ↳ ${rep.url}`);
+    }
+    for (const cl of claims.filter((x) => x.cluster_id === c.id)) {
+      const hint = cl.verify_hint ? ` · verify: ${cl.verify_hint}` : "";
+      console.log(
+        `    [${cl.evidence_type}] ${cl.text} (${cl.supporting_item_ids.length} src)${hint}`,
+      );
+    }
+  }
+
+  coverageNotice([]);
+  return 0;
+}
+
 /** Semantic retrieval: ranked, deduped items for a topic. */
 async function match(args: Args): Promise<number> {
   const dbUrl = requireDatabaseUrl();
@@ -383,6 +438,8 @@ async function main(): Promise<number> {
       return await gather(args);
     case "match":
       return await match(args);
+    case "analyze":
+      return await analyze(args);
     case "topic": {
       const sub = String(args._[1] ?? "");
       if (sub === "new") return await topicNew(args);
@@ -408,6 +465,7 @@ async function main(): Promise<number> {
           "  ingest <keywords> [--topic f] [--limit n]      (Bluesky → corpus)\n" +
           "  gather <keywords> [--topic f]                  (Reddit+GDELT+RSS → corpus, + coverage)\n" +
           "  match  <keywords> [--topic f] [-k n] [--explain]  (semantic retrieval)\n" +
+          "  analyze <keywords> [--topic f] [-k n]          (cluster + velocity + claims)\n" +
           "  topic new [<id>]                               (author a topic file)\n" +
           '  brief  "<topic>"',
       );

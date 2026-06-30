@@ -74,6 +74,7 @@
     "@std/cli": "jsr:@std/cli@^1",
     "postgres": "npm:postgres@^3",
     "@huggingface/transformers": "npm:@huggingface/transformers@^3",
-    "@mikaelporttila/rss": "jsr:@mikaelporttila/rss@^1"
+    "@mikaelporttila/rss": "jsr:@mikaelporttila/rss@^1",
+    "@anthropic-ai/sdk": "npm:@anthropic-ai/sdk@^0.69"
   }
 }

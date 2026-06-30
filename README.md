@@ -39,6 +39,9 @@ deno task ingest --topic config/topics/riverside-recall.json --limit 50  # Blues
 deno task start gather --topic config/topics/riverside-recall.json       # Reddit+GDELT+RSS → store, + coverage report
 deno task match  --topic config/topics/riverside-recall.json -k 20 --explain  # ranked + score legend
 
+# Analysis (clusters → velocity → claims; claim extraction needs ANTHROPIC_API_KEY):
+deno task start analyze --topic config/topics/riverside-recall.json -k 200
+
 deno task brief "riverside city council recall"   # stub for the briefing CLI
 ```
 
@@ -68,8 +71,13 @@ Phase 1 (merged): the **Corpus** — a Postgres + pgvector append-only store wit
 (`bge-small-en-v1.5`) and **semantic topic matching** (`ingest` → embed/store, `match` → ranked
 retrieval).
 
-Phase 2 (in progress): more sources + **coverage**. **Reddit** (app-only OAuth, poll), **GDELT**
-(keyless news query), and **RSS** (per-topic outlet feeds) adapters behind `SourcePort`, plus the
+Phase 2 (merged): more sources + **coverage**. **Reddit** (app-only OAuth, poll), **GDELT** (keyless
+news query), and **RSS** (per-topic outlet feeds) adapters behind `SourcePort`, plus the
 `CoverageReport` (P1) — `gather` polls them, stores results, and prints what was queried, counts per
-source, and what it could NOT see (TikTok/Instagram are always-declared blind spots). Analysis and
-briefing land next — see the spec's Build Plan.
+source, and what it could NOT see (TikTok/Instagram are always-declared blind spots).
+
+Phase 3 (in progress): **Analysis**. Single-linkage clustering over embeddings into narratives,
+**velocity** scoring (items/hour — the "is it happening?" signal, P5), and LLM **claim extraction**
+tagged by evidence type (P4) via Haiku 4.5 over the Message Batches API with a prompt-cached system
+prompt and structured JSON output. `analyze` clusters, scores, and extracts. Briefing synthesis is
+next — see the spec's Build Plan.
