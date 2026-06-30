@@ -7,7 +7,7 @@
  * always reported as unavailable, never silently omitted.
  */
 
-import type { CoverageReport, Item } from "../ports.ts";
+import type { BlindSpotSignal, CoverageReport, Item } from "../ports.ts";
 
 /** Always-unavailable sources. The thing under investigation may live exactly here. */
 export const DECLARED_BLIND_SPOTS: { source: string; reason: string }[] = [
@@ -32,6 +32,7 @@ export function assembleCoverageReport(
   topicId: string,
   results: SourceResult[],
   runAt: Date = new Date(),
+  blindSpotSignals: BlindSpotSignal[] = [],
 ): CoverageReport {
   const sources_queried: string[] = [];
   const items_per_source: Record<string, number> = {};
@@ -67,5 +68,6 @@ export function assembleCoverageReport(
     items_per_source,
     sources_unavailable,
     window: [oldest ?? runAt, newest ?? runAt],
+    blind_spot_signals: blindSpotSignals.length ? blindSpotSignals : undefined,
   };
 }

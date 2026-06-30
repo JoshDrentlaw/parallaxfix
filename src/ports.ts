@@ -47,6 +47,47 @@ export interface CoverageReport {
   sources_unavailable: { source: string; reason: string }[];
   /** [oldest, newest] created_at across the items, or [run_at, run_at] if empty. */
   window: [Date, Date];
+  /**
+   * Circling the empty space: how hard the *reachable* sources point at a blind
+   * spot (TikTok/Instagram). Attention, not content — it augments the blind-spot
+   * declaration, never replaces it. Present only for platforms with references.
+   */
+  blind_spot_signals?: BlindSpotSignal[];
+}
+
+/**
+ * One reachable item pointing at a blind-spot platform — a link to a specific
+ * target, or a bare textual mention. This is meta-evidence about *attention*,
+ * never content we saw.
+ */
+export interface BlindSpotReference {
+  /** "tiktok" | "instagram". */
+  platform: string;
+  /** Normalized URL of the referenced item (links), or null for a bare mention. */
+  target: string | null;
+  kind: "link" | "mention";
+  /** The reachable item doing the referencing — provenance (P3). */
+  item_id: string;
+  source: Item["source"];
+  url: string;
+  created_at: Date;
+}
+
+/** Aggregated blind-spot pull for one platform on a topic. */
+export interface BlindSpotSignal {
+  platform: string;
+  /** Distinct reachable items referencing it. */
+  referencing_items: number;
+  by_source: Record<string, number>;
+  /** Reference counts split by kind. */
+  links: number;
+  mentions: number;
+  /** Convergence: most-pointed-at targets (a shared video = a focal point). */
+  top_targets: { target: string; mentions: number }[];
+  /** Recent references/hour — is the blind-spot conversation accelerating? */
+  references_per_hour: number;
+  /** [oldest, newest] reference time, or [now, now] if none. */
+  window: [Date, Date];
 }
 
 /** A source of raw events. Knows about a vendor; knows nothing about clustering. */
