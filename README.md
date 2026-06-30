@@ -76,8 +76,16 @@ news query), and **RSS** (per-topic outlet feeds) adapters behind `SourcePort`, 
 `CoverageReport` (P1) — `gather` polls them, stores results, and prints what was queried, counts per
 source, and what it could NOT see (TikTok/Instagram are always-declared blind spots).
 
-Phase 3 (in progress): **Analysis**. Single-linkage clustering over embeddings into narratives,
+Phase 3 (merged): **Analysis**. Single-linkage clustering over embeddings into narratives,
 **velocity** scoring (items/hour — the "is it happening?" signal, P5), and LLM **claim extraction**
 tagged by evidence type (P4) via Haiku 4.5 over the Message Batches API with a prompt-cached system
-prompt and structured JSON output. `analyze` clusters, scores, and extracts. Briefing synthesis is
-next — see the spec's Build Plan.
+prompt and structured JSON output. `analyze` clusters, scores, and extracts.
+
+**Blind-spot reference signal** (`src/analysis/references.ts`): we can't see TikTok/Instagram, but
+we measure how hard the _reachable_ sources point at them — how many items reference a blind spot,
+whether they converge on the same target, and how fast it's accelerating. This **augments** the
+blind-spot declaration (never replaces it): it's a measure of _attention_, not content, and links
+can be gamed, so it's surfaced as a lead, not proof. The parallax move — locating the unseen by the
+pull it exerts on the visible.
+
+Briefing synthesis lands next — see the spec's Build Plan.

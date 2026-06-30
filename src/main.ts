@@ -217,6 +217,23 @@ function printCoverageReport(r: CoverageReport): void {
   console.log("  could NOT see:");
   for (const u of r.sources_unavailable) {
     console.log(`    ${u.source.padEnd(9)} — ${u.reason}`);
+    // Circling the empty space: if the reachable web points at this blind spot,
+    // surface the pull (attention, NOT content).
+    const sig = r.blind_spot_signals?.find((s) => s.platform === u.source);
+    if (sig) {
+      const by = Object.entries(sig.by_source).map(([s, n]) => `${s} ${n}`).join(", ");
+      console.log(
+        `              ↳ but ${sig.referencing_items} reachable item(s) reference it ` +
+          `(${by}) · ${sig.references_per_hour.toFixed(1)}/h`,
+      );
+      const top = sig.top_targets[0];
+      if (top && top.mentions > 1) {
+        console.log(`                ${top.mentions} converge on ↳ ${top.target}`);
+      }
+    }
+  }
+  if (r.blind_spot_signals?.length) {
+    console.log("    (references = attention, not content; links can be gamed — treat as a lead.)");
   }
 }
 
@@ -263,7 +280,13 @@ async function gather(args: Args): Promise<number> {
     await corpus.close();
   }
 
-  printCoverageReport(assembleCoverageReport(topic.id, results));
+  // Circle the blind spots: measure how hard the gathered, reachable items
+  // point at TikTok/Instagram (a known unknown made visible).
+  const { summarizeBlindSpotSignals } = await import("./analysis/references.ts");
+  const allItems = results.flatMap((r) => r.items);
+  const signals = summarizeBlindSpotSignals(allItems);
+
+  printCoverageReport(assembleCoverageReport(topic.id, results, new Date(), signals));
   return 0;
 }
 
