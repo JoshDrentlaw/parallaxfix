@@ -6,6 +6,7 @@
     "jsr:@std/assert@1": "1.0.19",
     "jsr:@std/cli@1": "1.0.30",
     "jsr:@std/internal@^1.0.12": "1.0.14",
+    "npm:@anthropic-ai/sdk@0.69": "0.69.0",
     "npm:@huggingface/transformers@3": "3.8.1",
     "npm:postgres@3": "3.4.9"
   },
@@ -33,6 +34,16 @@
     }
   },
   "npm": {
+    "@anthropic-ai/sdk@0.69.0": {
+      "integrity": "sha512-L92d2q47BSq+7slUqHBL1d2DwloulZotYGCTDt9AYRtPmYF+iK6rnwq9JaZwPPJgk+LenbcbQ/nj6gfaDFsl9w==",
+      "dependencies": [
+        "json-schema-to-ts"
+      ],
+      "bin": true
+    },
+    "@babel/runtime@7.29.7": {
+      "integrity": "sha512-Nq8OhGWiZIZGV6hLHoyAKLLcJihP/xFeBMGJoUrxTX2psI8dCifzLhZISFb+VWS3wFMRDmCGw5R+dOySCqPLhw=="
+    },
     "@emnapi/runtime@1.11.1": {
       "integrity": "sha512-vgj7R3y3Wgx24IQaGPA/R6YFXLHVMOZ0uVEyIQPaWs+rd1AzfEMXlAC22FYwO1XkKR6NPsq7mUandH8oIRdZFw==",
       "dependencies": [
@@ -322,6 +333,13 @@
         "es-define-property"
       ]
     },
+    "json-schema-to-ts@3.1.1": {
+      "integrity": "sha512-+DWg8jCJG2TEnpy7kOm/7/AxaYoaRbjVB4LFZLySZlWn8exGs3A4OLJR966cVvU26N7X9TWxl+Jsw7dzAqKT6g==",
+      "dependencies": [
+        "@babel/runtime",
+        "ts-algebra"
+      ]
+    },
     "json-stringify-safe@5.0.1": {
       "integrity": "sha512-ZClg6AaYvamvYEE82d3Iyd3vSSIjQ+odgjaTzRuO3s7toCdFKczob2i0zCh7JE8kWn17yvAWhUVxvqGwUalsRA=="
     },
@@ -468,6 +486,9 @@
         "yallist"
       ]
     },
+    "ts-algebra@2.0.0": {
+      "integrity": "sha512-FPAhNPFMrkwz76P7cdjdmiShwMynZYN6SgOujD1urY4oNm80Ou9oMdmbR45LotcKOXoy7wSmHkRFE6Mxbrhefw=="
+    },
     "tslib@2.8.1": {
       "integrity": "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w=="
     },
@@ -486,6 +507,7 @@
       "jsr:@mikaelporttila/rss@1",
       "jsr:@std/assert@1",
       "jsr:@std/cli@1",
+      "npm:@anthropic-ai/sdk@0.69",
       "npm:@huggingface/transformers@3",
       "npm:postgres@3"
     ]

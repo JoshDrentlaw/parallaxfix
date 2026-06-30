@@ -84,9 +84,51 @@ export interface EmbeddingPort {
   embedQuery(text: string): Promise<number[]>;
 }
 
+/** A narrative cluster — items grouped by semantic similarity. */
+export interface Cluster {
+  id: string;
+  item_ids: string[];
+  /** Mean (then normalized) embedding of the cluster's items. */
+  centroid: number[];
+  /** Short LLM-generated description; empty until labeled. */
+  label: string;
+  first_seen: Date;
+  /** Items/hour over the recent window — the "is it happening?" signal (P5). */
+  velocity: number;
+  size: number;
+}
+
+/** Evidence type for an extracted claim (P4: separate verifiable from asserted). */
+export type EvidenceType = "primary_record" | "reported" | "opinion" | "unsourced";
+
+/** A discrete factual assertion pulled from the corpus, with its evidence type. */
+export interface Claim {
+  id: string;
+  text: string;
+  cluster_id: string;
+  evidence_type: EvidenceType;
+  supporting_item_ids: string[];
+  /** Where a human could check it (e.g. "FEC.gov"); null if none suggested. */
+  verify_hint: string | null;
+}
+
+/** What the LLM returns per item before we assign ids / link to clusters. */
+export interface ExtractedClaim {
+  text: string;
+  evidence_type: EvidenceType;
+  verify_hint: string | null;
+}
+
 export interface LLMPort {
-  /** structured per-item extraction (Haiku, batched + cached) */
-  extract(prompt: string, items: Item[]): Promise<unknown[]>;
-  /** final synthesis (Sonnet/Opus) — description + evidence only, never a verdict (P2) */
+  /**
+   * Per-item claim extraction (Haiku, batched + prompt-cached). Returns the
+   * claims found in each input item, index-aligned with `items` (empty array
+   * for items with no checkable claim). Ingested text is untrusted data, never
+   * instructions.
+   */
+  extractClaims(items: Item[]): Promise<ExtractedClaim[][]>;
+  /** Short neutral narrative label for a cluster, from representative texts. */
+  labelCluster(texts: string[]): Promise<string>;
+  /** Final synthesis (Sonnet/Opus) — description + evidence only, never a verdict (P2). */
   synthesize(prompt: string): Promise<string>;
 }

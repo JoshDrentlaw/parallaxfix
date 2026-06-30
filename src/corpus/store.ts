@@ -143,6 +143,36 @@ export class PgCorpus implements CorpusPort {
       .slice(0, k);
   }
 
+  /**
+   * Like `retrieve`, but returns full `Item`s WITH their embeddings populated,
+   * for the analysis stage (clustering needs the vectors). Excludes are applied.
+   */
+  async retrieveForAnalysis(topic: TopicDefinition, k: number): Promise<Item[]> {
+    const qvec = await this.#embedder.embedQuery(buildTopicQuery(topic));
+    const lit = vectorLiteral(qvec);
+    const sql = this.#sql;
+    const rows = await sql`
+      SELECT id, source, source_id, author, text, url,
+             created_at, fetched_at, engagement, parent_ref, raw,
+             embedding::text AS embedding
+      FROM items
+      WHERE embedding IS NOT NULL
+      ORDER BY embedding <=> ${lit}::vector
+      LIMIT ${k}
+    `;
+    return rows
+      .map((r) => {
+        const row = r as unknown as Record<string, unknown>;
+        const item = rowToItem(row);
+        // pgvector ::text is a JSON-shaped array literal, e.g. "[0.1,0.2,...]".
+        item.embedding = typeof row.embedding === "string"
+          ? JSON.parse(row.embedding) as number[]
+          : null;
+        return item;
+      })
+      .filter((it) => !isExcluded(it, topic));
+  }
+
   /** Test helper: wipe the corpus. */
   async clear(): Promise<void> {
     await this.#sql`TRUNCATE items`;
