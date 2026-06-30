@@ -31,6 +31,7 @@ function reportEnv(): void {
   console.log("\nRuntime config:");
   console.log(`  ANTHROPIC_API_KEY : ${have("ANTHROPIC_API_KEY")}`);
   console.log(`  REDDIT_CLIENT_ID  : ${have("REDDIT_CLIENT_ID")}`);
+  console.log(`  DATABASE_URL      : ${have("DATABASE_URL")}`);
   console.log(`  HTTPS_PROXY       : ${have("HTTPS_PROXY")}`);
   console.log(`  DENO_CERT         : ${have("DENO_CERT")}`);
 }
@@ -118,6 +119,91 @@ async function listen(args: Args): Promise<number> {
   return 0;
 }
 
+/** Require DATABASE_URL for Corpus commands; returns it or null (with a hint). */
+function requireDatabaseUrl(): string | null {
+  const url = Deno.env.get("DATABASE_URL");
+  if (!url) {
+    console.error("\nDATABASE_URL is not set — the Corpus needs Postgres + pgvector.");
+    console.error("  e.g. DATABASE_URL=postgres://postgres:postgres@localhost:5432/handterminal");
+  }
+  return url ?? null;
+}
+
+/** Stream the keystone source into the corpus (embeds + stores). */
+async function ingest(args: Args): Promise<number> {
+  const dbUrl = requireDatabaseUrl();
+  if (!dbUrl) return 2;
+
+  const topic = await resolveTopic(args);
+  const limit = Number(args.limit ?? 50);
+
+  const { PgCorpus } = await import("./corpus/store.ts");
+  const { LocalEmbedder } = await import("./corpus/embed.ts");
+  const corpus = new PgCorpus({ databaseUrl: dbUrl, embedder: new LocalEmbedder() });
+  await corpus.init();
+
+  const controller = new AbortController();
+  const onSigint = () => controller.abort();
+  Deno.addSignalListener("SIGINT", onSigint);
+
+  const adapter = new BlueskyJetstreamAdapter({ signal: controller.signal });
+  console.log(`\nIngesting Bluesky → corpus for "${topic.id}" (limit ${limit})…`);
+
+  let n = 0;
+  let batch: Item[] = [];
+  const unavailable: Unavailable[] = [];
+  try {
+    for await (const item of adapter.fetch(topic)) {
+      batch.push(item);
+      if (batch.length >= 16) {
+        await corpus.append(batch);
+        batch = [];
+      }
+      if (limit && ++n >= limit) {
+        controller.abort();
+        break;
+      }
+    }
+    if (batch.length) await corpus.append(batch);
+  } catch (err) {
+    if (!controller.signal.aborted) {
+      unavailable.push({
+        source: "bluesky",
+        reason: err instanceof Error ? err.message : String(err),
+      });
+    }
+  } finally {
+    Deno.removeSignalListener("SIGINT", onSigint);
+    await corpus.close();
+  }
+
+  console.log(`\nIngested ${n} item(s) into the corpus.`);
+  coverageNotice(["bluesky"], unavailable);
+  return 0;
+}
+
+/** Semantic retrieval: ranked, deduped items for a topic. */
+async function match(args: Args): Promise<number> {
+  const dbUrl = requireDatabaseUrl();
+  if (!dbUrl) return 2;
+
+  const topic = await resolveTopic(args);
+  const k = Number(args.k ?? 20);
+
+  const { PgCorpus } = await import("./corpus/store.ts");
+  const { LocalEmbedder } = await import("./corpus/embed.ts");
+  const corpus = new PgCorpus({ databaseUrl: dbUrl, embedder: new LocalEmbedder() });
+
+  try {
+    const items = await corpus.retrieve(topic, k);
+    console.log(`\nTop ${items.length} match(es) for "${topic.id}":`);
+    for (const it of items) printItem(it);
+  } finally {
+    await corpus.close();
+  }
+  return 0;
+}
+
 async function main(): Promise<number> {
   const args = parseArgs(Deno.args);
   const cmd = String(args._[0] ?? "status");
@@ -132,6 +218,10 @@ async function main(): Promise<number> {
       return 0;
     case "listen":
       return await listen(args);
+    case "ingest":
+      return await ingest(args);
+    case "match":
+      return await match(args);
     case "brief": {
       const topic = args._.slice(1).join(" ").trim();
       if (!topic) {
@@ -145,7 +235,12 @@ async function main(): Promise<number> {
     default:
       console.error(`\nUnknown command: ${cmd}`);
       console.error(
-        'Commands: status | listen <keywords> [--topic f] [--limit n] | brief "<topic>"',
+        "Commands:\n" +
+          "  status\n" +
+          "  listen <keywords> [--topic f] [--limit n]\n" +
+          "  ingest <keywords> [--topic f] [--limit n]   (Bluesky → corpus)\n" +
+          "  match  <keywords> [--topic f] [-k n]        (semantic retrieval)\n" +
+          '  brief  "<topic>"',
       );
       return 2;
   }

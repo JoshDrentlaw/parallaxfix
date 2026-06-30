@@ -53,7 +53,12 @@ export interface CorpusPort {
 }
 
 export interface EmbeddingPort {
+  /** Vector length this embedder produces (must match the DB vector column). */
+  readonly dimensions: number;
+  /** Embed documents/items for storage. */
   embed(texts: string[]): Promise<number[][]>;
+  /** Embed a search query; models like bge prepend a retrieval instruction. */
+  embedQuery(text: string): Promise<number[]>;
 }
 
 export interface LLMPort {

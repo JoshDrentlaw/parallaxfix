@@ -28,8 +28,23 @@ deno task start        # status: runtime config + coverage gaps
 deno task start listen wildfire,riverside --limit 10
 deno task start listen --topic config/topics/example.json --limit 10
 
+# Corpus (needs DATABASE_URL → Postgres+pgvector; see below):
+deno task ingest wildfire,riverside --limit 50     # Bluesky → embed → store
+deno task match  wildfire,riverside -k 20          # semantic retrieval, ranked
+
 deno task brief "riverside city council recall"   # stub for the briefing CLI
 ```
+
+### Corpus prerequisites (Phase 1)
+
+- **Postgres + pgvector.** Point `DATABASE_URL` at a database with the `vector` extension available
+  (local: `docker run -e POSTGRES_PASSWORD=postgres -p 5432:5432 pgvector/pgvector:pg16`). The
+  schema is created automatically on first `ingest`.
+- **Local embedder.** `ingest`/`match` run `bge-small-en-v1.5` via transformers.js. Those tasks set
+  `--node-modules-dir=auto`; on first run the model weights (~130MB) download from huggingface.co
+  and cache under `./models`, and Deno may prompt to approve native build scripts
+  (`deno approve-scripts` for `onnxruntime-node`/`sharp`) — without them it falls back to the slower
+  WASM runtime. Both the weight download and the egress need outbound network.
 
 Dev loop:
 
@@ -39,6 +54,10 @@ deno task check && deno task lint && deno task fmt && deno task test
 
 ## Status
 
-Phase 0: project + security policy + Ports + the **Bluesky/Jetstream adapter** (the keystone source)
-streaming normalized `Item`s via `listen`, with unreachable sources reported as coverage gaps (P1).
-Corpus, more sources, analysis, and briefing land in subsequent phases — see the spec's Build Plan.
+Phase 0 (merged): project + security policy + Ports + the **Bluesky/Jetstream adapter** streaming
+normalized `Item`s via `listen`, with unreachable sources reported as coverage gaps (P1).
+
+Phase 1 (in progress): the **Corpus** — a Postgres + pgvector append-only store with embeddings
+(`bge-small-en-v1.5`) and **semantic topic matching** (`ingest` → embed/store, `match` → ranked
+retrieval). More sources, analysis, and briefing land in subsequent phases — see the spec's Build
+Plan.

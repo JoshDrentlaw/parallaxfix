@@ -11,6 +11,9 @@ data/
 *.sqlite
 .cache/
 
+# Node deps (created by --node-modules-dir for the transformers.js native runtime)
+node_modules/
+
 # Local embedding model weights
 models/
 

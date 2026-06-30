@@ -41,16 +41,35 @@ export function adHocTopic(keywords: string[]): TopicDefinition {
  * topic matches everything (raw firehose). Case-insensitive substring match.
  */
 export function matchesTopic(item: Item, topic: TopicDefinition): boolean {
-  const hay = item.text.toLowerCase();
-
-  for (const ex of topic.exclude) {
-    if (ex && hay.includes(ex.toLowerCase())) return false;
-  }
+  if (isExcluded(item, topic)) return false;
 
   const terms = [...topic.keywords, ...topic.entities]
     .map((t) => t.toLowerCase())
     .filter(Boolean);
   if (terms.length === 0) return true;
 
+  const hay = item.text.toLowerCase();
   return terms.some((t) => hay.includes(t));
+}
+
+/**
+ * Hard negative filter: drop items hitting an `exclude` term. Applied after
+ * semantic retrieval (Phase 1) where keyword *matching* is no longer required
+ * but exclusions still cut noise. Case-insensitive substring match.
+ */
+export function isExcluded(item: Item, topic: TopicDefinition): boolean {
+  const hay = item.text.toLowerCase();
+  return topic.exclude.some((ex) => ex !== "" && hay.includes(ex.toLowerCase()));
+}
+
+/**
+ * The text embedded to represent a topic for semantic retrieval: the
+ * natural-language description carries most of the signal, with keywords and
+ * entities appended to sharpen it.
+ */
+export function buildTopicQuery(topic: TopicDefinition): string {
+  const parts = [topic.description, ...topic.keywords, ...topic.entities]
+    .map((p) => p.trim())
+    .filter(Boolean);
+  return parts.join(" ") || topic.id;
 }
