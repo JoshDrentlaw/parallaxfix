@@ -1,8 +1,10 @@
-# Hand Terminal — Topic Briefing Engine
+# Parallax Fix — Topic Briefing Engine
 
-> **Working title.** Inspired by _The Expanse_'s hand-terminal feed: a topic-scoped aggregator that
-> coalesces news + social discussion into a single briefing, built for _intent_ rather than
-> doomscrolling.
+> **The name.** _Parallax_ — you take in the same subject from different sources at different focus
+> points, and the shift between those views is what locates it. _Fix_ — both the navigational
+> reading you triangulate from those views and, quickly, the verb of the app: "I need to get a fix
+> on that." A topic-scoped aggregator that coalesces news + social discussion into a single
+> briefing, built for _intent_ rather than doomscrolling.
 
 This document is the build spec for Claude Code. Read it top to bottom before writing code. The
 **Design Philosophy** and **Source Reality (2026)** sections are load-bearing — they encode
@@ -276,7 +278,7 @@ scheduling/persistence for recurring topics; simple web UI. Only after 0–4 are
 ## 9. Suggested Repo Structure
 
 ```
-hand-terminal/
+parallax-fix/
   CLAUDE.md                 # seed below
   pyproject.toml
   config/
@@ -322,10 +324,10 @@ hand-terminal/
 > Drop this into the repo root so Claude Code keeps the philosophy in context.
 
 ```markdown
-# Hand Terminal — context for Claude Code
+# Parallax Fix — context for Claude Code
 
 Topic-briefing engine. Aggregates Bluesky + Reddit + news into a structured briefing with provenance
-and explicit coverage gaps. See hand-terminal-spec.md for the full spec.
+and explicit coverage gaps. See parallax-fix-spec.md for the full spec.
 
 ## Invariants (do not violate)
 

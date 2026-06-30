@@ -1,5 +1,5 @@
 /**
- * Hand Terminal — entrypoint.
+ * Parallax Fix — entrypoint.
  *
  * Phase 0: boots under the declared security policy (SECURITY.md / deno.jsonc)
  * and streams the keystone source. The `listen` command runs the Bluesky/
@@ -19,10 +19,15 @@ import { adHocTopic, loadTopic } from "./ingestion/topic.ts";
 const OTHER_PULL_SOURCES = ["reddit", "gdelt", "rss"] as const;
 
 function banner(): void {
-  console.log("┌─ Hand Terminal ───────────────────────────────────────────┐");
-  console.log("│ Topic-briefing engine · read-only · provenance-first       │");
-  console.log("│ Assists judgment — never renders a verdict (P2).           │");
-  console.log("└────────────────────────────────────────────────────────────┘");
+  const w = 60; // inner width between the borders
+  const title = " Parallax Fix ";
+  const lines = [
+    "Topic-briefing engine · read-only · provenance-first",
+    "Assists judgment — never renders a verdict (P2).",
+  ];
+  console.log(`┌${("─" + title).padEnd(w, "─")}┐`);
+  for (const l of lines) console.log(`│${(" " + l).padEnd(w)}│`);
+  console.log(`└${"─".repeat(w)}┘`);
 }
 
 /** Surface which capabilities the policy actually granted at boot. */
@@ -136,7 +141,7 @@ function requireDatabaseUrl(): string | null {
   const url = Deno.env.get("DATABASE_URL");
   if (!url) {
     console.error("\nDATABASE_URL is not set — the Corpus needs Postgres + pgvector.");
-    console.error("  e.g. DATABASE_URL=postgres://postgres:postgres@localhost:5432/handterminal");
+    console.error("  e.g. DATABASE_URL=postgres://postgres:postgres@localhost:5432/parallaxfix");
   }
   return url ?? null;
 }

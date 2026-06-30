@@ -35,7 +35,7 @@ export class LocalEmbedder implements EmbeddingPort {
   #extractor: FeatureExtractor | null = null;
 
   constructor(opts: LocalEmbedderOptions = {}) {
-    this.#model = opts.model ?? Deno.env.get("HAND_TERMINAL_EMBED_MODEL") ??
+    this.#model = opts.model ?? Deno.env.get("PARALLAX_FIX_EMBED_MODEL") ??
       "BAAI/bge-small-en-v1.5";
     this.dimensions = opts.dimensions ?? 384;
     this.#queryInstruction = opts.queryInstruction ??

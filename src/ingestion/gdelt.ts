@@ -74,7 +74,7 @@ export class GdeltAdapter implements SourcePort {
       sort: "datedesc",
     });
     const res = await fetch(`${GDELT_DOC_API}?${params}`, {
-      headers: { "user-agent": "hand-terminal/0.1 (research)" },
+      headers: { "user-agent": "parallax-fix/0.1 (research)" },
     });
     if (!res.ok) throw new Error(`GDELT ${res.status} ${res.statusText}`);
 

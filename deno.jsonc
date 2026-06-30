@@ -1,12 +1,12 @@
 {
   // ─────────────────────────────────────────────────────────────────────────
-  // Hand Terminal — Deno project + SECURITY POLICY (operational form).
+  // Parallax Fix — Deno project + SECURITY POLICY (operational form).
   //
   // The permission flags baked into the tasks below ARE this application's
   // security policy in executable form. See SECURITY.md for the rationale and
   // the host-contract notes for nucklehead.
   //
-  // Posture: BROAD BY DESIGN. Hand Terminal declares its own policy and is NOT
+  // Posture: BROAD BY DESIGN. Parallax Fix declares its own policy and is NOT
   // bound by the restrictive defaults applied to the `chores` app, nor by the
   // extended-but-still-limited grants given to `tower-expert`. Where this app
   // needs a capability, it claims it. The flags are enumerated (rather than a
@@ -14,7 +14,7 @@
   // set is deliberately equivalent to full host capability.
   // ─────────────────────────────────────────────────────────────────────────
 
-  "name": "hand-terminal",
+  "name": "parallax-fix",
   "version": "0.1.0",
   "exports": "./src/main.ts",
 
@@ -27,7 +27,7 @@
   //                  proxy). An allowlist is intentionally NOT used: the set of
   //                  reachable hosts is open-ended by the app's nature.
   //   --allow-env    secrets + runtime config (ANTHROPIC_API_KEY, REDDIT_*,
-  //                  X_* , HTTPS_PROXY, DENO_CERT, HAND_TERMINAL_*).
+  //                  X_* , HTTPS_PROXY, DENO_CERT, PARALLAX_FIX_*).
   //   --allow-read   config/topics, the SQLite store, local embedding model
   //                  files, the CA bundle.
   //   --allow-write  the append-only event log, vector index, and caches.

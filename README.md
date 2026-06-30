@@ -1,10 +1,10 @@
-# Hand Terminal
+# Parallax Fix
 
 Topic-scoped briefing engine: coalesces news + social discussion into a single structured briefing
 built for _intent_ rather than doomscrolling. Provenance on every item, explicit coverage gaps, no
 verdicts.
 
-See [`hand-terminal-spec.md`](./hand-terminal-spec.md) for the full build spec and
+See [`parallax-fix-spec.md`](./parallax-fix-spec.md) for the full build spec and
 [`CLAUDE.md`](./CLAUDE.md) for the working invariants.
 
 ## Runtime

@@ -65,7 +65,7 @@ export function redditCredentialsFromEnv(): RedditCredentials | null {
   return {
     clientId,
     clientSecret,
-    userAgent: Deno.env.get("REDDIT_USER_AGENT") ?? "hand-terminal/0.1 (research)",
+    userAgent: Deno.env.get("REDDIT_USER_AGENT") ?? "parallax-fix/0.1 (research)",
   };
 }
 

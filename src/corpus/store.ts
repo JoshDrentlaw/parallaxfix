@@ -3,7 +3,7 @@
  *
  * One database holds the append-only event log (the `items` table) and the
  * embedding index (a `vector` column with an HNSW cosine index). Chosen over
- * the SQLite MVP because Hand Terminal is headed for a multi-user hosted
+ * the SQLite MVP because Parallax Fix is headed for a multi-user hosted
  * deployment: a client-server DB gives concurrent writes, durability, and a
  * single store for app data + vectors.
  *

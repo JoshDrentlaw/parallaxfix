@@ -20,4 +20,4 @@ and "petition to remove her from office" score high despite sharing no keywords.
 
 The scores are relative — good for ranking and triage within one run, not an
 absolute measure of truth. A high score means "worth a look," not "confirmed."
-Hand Terminal lays the evidence out; you make the call.`;
+Parallax Fix lays the evidence out; you make the call.`;

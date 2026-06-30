@@ -67,7 +67,7 @@ export class RssAdapter implements SourcePort {
       let xml: string;
       try {
         const res = await fetch(feedUrl, {
-          headers: { "user-agent": "hand-terminal/0.1 (research)" },
+          headers: { "user-agent": "parallax-fix/0.1 (research)" },
         });
         if (!res.ok) continue; // one bad feed shouldn't sink the rest
         xml = await res.text();

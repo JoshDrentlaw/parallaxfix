@@ -21,7 +21,7 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: handterminal
+          POSTGRES_DB: parallaxfix
         ports:
           - 5432:5432
         options: >-
@@ -31,7 +31,7 @@ jobs:
           --health-retries 10
 
     env:
-      DATABASE_URL: postgres://postgres:postgres@localhost:5432/handterminal
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/parallaxfix
 
     steps:
       - uses: actions/checkout@v4
