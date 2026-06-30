@@ -1,20 +1,20 @@
-# Hand Terminal — Security Policy
+# Parallax Fix — Security Policy
 
-This document is the **authoritative security policy** for the Hand Terminal topic-briefing engine.
+This document is the **authoritative security policy** for the Parallax Fix topic-briefing engine.
 It is self-defined for this application. Its executable form lives in `deno.jsonc` (the permission
 flags on each `deno task`); this file is the rationale and the host contract.
 
 ## 0. Standing on nucklehead
 
-Hand Terminal is hosted on **nucklehead** alongside other applications. Those applications follow
+Parallax Fix is hosted on **nucklehead** alongside other applications. Those applications follow
 restrictive capability heuristics — conventions we hold ourselves to, not policy documents that live
 in their repos:
 
 - **`chores`** — locked down (minimal capability).
 - **`tower-expert`** — extended, but still limited.
 
-**Hand Terminal is bound by neither.** It declares its own policy here. This is deliberate, not an
-oversight: Hand Terminal is an aggregation/enrichment engine whose job is to reach out across the
+**Parallax Fix is bound by neither.** It declares its own policy here. This is deliberate, not an
+oversight: Parallax Fix is an aggregation/enrichment engine whose job is to reach out across the
 open internet, persist a corpus, run native vector/embedding code, and call an LLM API. Its
 capability needs are categorically broader than a chores tracker or a scoped expert assistant.
 
@@ -32,10 +32,10 @@ in `deno.jsonc` is preferred so intent is legible.
 
 ## 2. Capability grants and justification
 
-| Deno flag       | Scope         | Why Hand Terminal needs it                                                                                                                                                                                                                                          |
+| Deno flag       | Scope         | Why Parallax Fix needs it                                                                                                                                                                                                                                           |
 | --------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--allow-net`   | **All hosts** | RSS ingestion targets _arbitrary_ outlet domains (e.g. local papers GDELT misses) — an allowlist is structurally impossible. Plus Bluesky Jetstream (`wss://jetstream*.bsky.network`), Reddit API, GDELT, the Claude API, the optional X API, and the egress proxy. |
-| `--allow-env`   | All env       | Reads secrets and config: `ANTHROPIC_API_KEY`, `REDDIT_CLIENT_ID/SECRET`, `X_*`, `HTTPS_PROXY`, `DENO_CERT`, and `HAND_TERMINAL_*` settings.                                                                                                                        |
+| `--allow-env`   | All env       | Reads secrets and config: `ANTHROPIC_API_KEY`, `REDDIT_CLIENT_ID/SECRET`, `X_*`, `HTTPS_PROXY`, `DENO_CERT`, and `PARALLAX_FIX_*` settings.                                                                                                                         |
 | `--allow-read`  | Filesystem    | Config/topic files (`config/topics/`), the SQLite event log + vector index, local embedding-model weights, and the CA bundle.                                                                                                                                       |
 | `--allow-write` | Filesystem    | The append-only event log, the vector index, and embedding/claim caches.                                                                                                                                                                                            |
 | `--allow-sys`   | System info   | Embedding/ML runtimes query CPU count and OS details for thread pools.                                                                                                                                                                                              |
@@ -71,7 +71,7 @@ implications:
 
 These are security-relevant invariants the pipeline must uphold:
 
-- **Read/ingest only.** Hand Terminal never _posts_ to any source. No write paths to external
+- **Read/ingest only.** Parallax Fix never _posts_ to any source. No write paths to external
   social/news platforms exist by design (Reddit free tier is non-commercial; respect source ToS).
 - **Provenance is mandatory.** Every surfaced statement carries source, author, timestamp, and URL.
   No claim floats free of its origin.

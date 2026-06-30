@@ -31,6 +31,22 @@ export interface TopicDefinition {
   entities: string[];
   description: string;
   exclude: string[];
+  /** Optional per-topic RSS feed URLs (e.g. a local outlet GDELT misses). */
+  feeds?: string[];
+}
+
+/** P1 made concrete: what a run did and did not look at. */
+export interface CoverageReport {
+  topic_id: string;
+  run_at: Date;
+  /** Sources actually queried this run. */
+  sources_queried: string[];
+  /** Item count contributed by each queried source. */
+  items_per_source: Record<string, number>;
+  /** Sources we could not see, with reasons (includes the declared blind spots). */
+  sources_unavailable: { source: string; reason: string }[];
+  /** [oldest, newest] created_at across the items, or [run_at, run_at] if empty. */
+  window: [Date, Date];
 }
 
 /** A source of raw events. Knows about a vendor; knows nothing about clustering. */

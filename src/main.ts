@@ -1,5 +1,5 @@
 /**
- * Hand Terminal — entrypoint.
+ * Parallax Fix — entrypoint.
  *
  * Phase 0: boots under the declared security policy (SECURITY.md / deno.jsonc)
  * and streams the keystone source. The `listen` command runs the Bluesky/
@@ -11,18 +11,23 @@
  */
 
 import { parseArgs } from "@std/cli/parse-args";
-import type { Item, TopicDefinition } from "./ports.ts";
+import type { CoverageReport, Item, SourcePort, TopicDefinition } from "./ports.ts";
+import { DECLARED_BLIND_SPOTS, type SourceResult } from "./briefing/coverage.ts";
 import { BlueskyJetstreamAdapter } from "./ingestion/bluesky.ts";
 import { adHocTopic, loadTopic } from "./ingestion/topic.ts";
 
-const DECLARED_BLIND_SPOTS = ["tiktok", "instagram"] as const;
-const NOT_YET_WIRED = ["reddit", "gdelt", "rss"] as const;
+const OTHER_PULL_SOURCES = ["reddit", "gdelt", "rss"] as const;
 
 function banner(): void {
-  console.log("┌─ Hand Terminal ───────────────────────────────────────────┐");
-  console.log("│ Topic-briefing engine · read-only · provenance-first       │");
-  console.log("│ Assists judgment — never renders a verdict (P2).           │");
-  console.log("└────────────────────────────────────────────────────────────┘");
+  const w = 60; // inner width between the borders
+  const title = " Parallax Fix ";
+  const lines = [
+    "Topic-briefing engine · read-only · provenance-first",
+    "Assists judgment — never renders a verdict (P2).",
+  ];
+  console.log(`┌${("─" + title).padEnd(w, "─")}┐`);
+  for (const l of lines) console.log(`│${(" " + l).padEnd(w)}│`);
+  console.log(`└${"─".repeat(w)}┘`);
 }
 
 /** Surface which capabilities the policy actually granted at boot. */
@@ -48,10 +53,10 @@ function coverageNotice(queried: string[], unavailable: Unavailable[] = []): voi
   for (const u of unavailable) {
     console.log(`  UNAVAILABLE      : ${u.source} — ${u.reason}`);
   }
-  const pending = NOT_YET_WIRED.filter((s) => !queried.includes(s));
-  if (pending.length) console.log(`  not yet wired    : ${pending.join(", ")}`);
-  for (const src of DECLARED_BLIND_SPOTS) {
-    console.log(`  blind spot       : ${src} — no automated access, NOT queried.`);
+  const pending = OTHER_PULL_SOURCES.filter((s) => !queried.includes(s));
+  if (pending.length) console.log(`  not queried here : ${pending.join(", ")} (use \`gather\`)`);
+  for (const bs of DECLARED_BLIND_SPOTS) {
+    console.log(`  blind spot       : ${bs.source} — ${bs.reason}`);
   }
 }
 
@@ -136,7 +141,7 @@ function requireDatabaseUrl(): string | null {
   const url = Deno.env.get("DATABASE_URL");
   if (!url) {
     console.error("\nDATABASE_URL is not set — the Corpus needs Postgres + pgvector.");
-    console.error("  e.g. DATABASE_URL=postgres://postgres:postgres@localhost:5432/handterminal");
+    console.error("  e.g. DATABASE_URL=postgres://postgres:postgres@localhost:5432/parallaxfix");
   }
   return url ?? null;
 }
@@ -191,6 +196,74 @@ async function ingest(args: Args): Promise<number> {
 
   console.log(`\nIngested ${n} item(s) into the corpus.`);
   coverageNotice(["bluesky"], unavailable);
+  return 0;
+}
+
+/** Render the CoverageReport — P1's first-class output, foregrounded. */
+function printCoverageReport(r: CoverageReport): void {
+  console.log("\n══ Coverage report (P1) ══════════════════════════════════");
+  console.log(`  topic  : ${r.topic_id}`);
+  console.log(`  run_at : ${r.run_at.toISOString()}`);
+  console.log(
+    `  window : ${r.window[0].toISOString().slice(0, 19)} … ${
+      r.window[1].toISOString().slice(0, 19)
+    }`,
+  );
+  console.log("  queried:");
+  if (r.sources_queried.length === 0) console.log("    (none)");
+  for (const s of r.sources_queried) {
+    console.log(`    ${s.padEnd(9)} ${r.items_per_source[s] ?? 0} item(s)`);
+  }
+  console.log("  could NOT see:");
+  for (const u of r.sources_unavailable) {
+    console.log(`    ${u.source.padEnd(9)} — ${u.reason}`);
+  }
+}
+
+/** Poll the pull-based sources (Reddit/GDELT/RSS), store, and report coverage. */
+async function gather(args: Args): Promise<number> {
+  const dbUrl = requireDatabaseUrl();
+  if (!dbUrl) return 2;
+
+  const topic = await resolveTopic(args);
+
+  const { PgCorpus } = await import("./corpus/store.ts");
+  const { LocalEmbedder } = await import("./corpus/embed.ts");
+  const { GdeltAdapter } = await import("./ingestion/gdelt.ts");
+  const { RedditAdapter } = await import("./ingestion/reddit.ts");
+  const { RssAdapter } = await import("./ingestion/rss.ts");
+  const { assembleCoverageReport } = await import("./briefing/coverage.ts");
+
+  const corpus = new PgCorpus({ databaseUrl: dbUrl, embedder: new LocalEmbedder() });
+  await corpus.init();
+
+  const adapters: SourcePort[] = [
+    new GdeltAdapter(),
+    new RedditAdapter(),
+    new RssAdapter({ feeds: topic.feeds }),
+  ];
+
+  console.log(`\nGathering pull-based sources for "${topic.id}"…`);
+  const results: SourceResult[] = [];
+  try {
+    for (const adapter of adapters) {
+      try {
+        const items: Item[] = [];
+        for await (const item of adapter.fetch(topic)) items.push(item);
+        await corpus.append(items);
+        results.push({ source: adapter.name, items });
+        console.log(`  ${adapter.name}: ${items.length} item(s)`);
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        results.push({ source: adapter.name, items: [], unavailable: reason });
+        console.log(`  ${adapter.name}: unavailable — ${reason}`);
+      }
+    }
+  } finally {
+    await corpus.close();
+  }
+
+  printCoverageReport(assembleCoverageReport(topic.id, results));
   return 0;
 }
 
@@ -306,6 +379,8 @@ async function main(): Promise<number> {
       return await listen(args);
     case "ingest":
       return await ingest(args);
+    case "gather":
+      return await gather(args);
     case "match":
       return await match(args);
     case "topic": {
@@ -331,6 +406,7 @@ async function main(): Promise<number> {
           "  status\n" +
           "  listen <keywords> [--topic f] [--limit n]\n" +
           "  ingest <keywords> [--topic f] [--limit n]      (Bluesky → corpus)\n" +
+          "  gather <keywords> [--topic f]                  (Reddit+GDELT+RSS → corpus, + coverage)\n" +
           "  match  <keywords> [--topic f] [-k n] [--explain]  (semantic retrieval)\n" +
           "  topic new [<id>]                               (author a topic file)\n" +
           '  brief  "<topic>"',

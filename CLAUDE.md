@@ -1,7 +1,7 @@
-# Hand Terminal — context for Claude Code
+# Parallax Fix — context for Claude Code
 
 Topic-briefing engine. Aggregates Bluesky + Reddit + news into a structured briefing with provenance
-and explicit coverage gaps. See `hand-terminal-spec.md` for the full spec.
+and explicit coverage gaps. See `parallax-fix-spec.md` for the full spec.
 
 ## Runtime
 
@@ -13,7 +13,7 @@ is a doc-level recommendation we override here.
 This app **defines its own security policy** — see `SECURITY.md`, with its executable form in the
 `deno task` permission flags in `deno.jsonc`.
 
-- Hand Terminal is **broad by design** and is NOT bound by the restrictive `chores` policy nor the
+- Parallax Fix is **broad by design** and is NOT bound by the restrictive `chores` policy nor the
   extended-but-limited `tower-expert` policy.
 - Operating principle: **if the app needs a capability, it is granted.** The grant is enumerated
   (not a bare `-A`) only for legibility/audit, but is equivalent to full host capability: net (all

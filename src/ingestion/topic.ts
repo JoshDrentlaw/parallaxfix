@@ -22,6 +22,7 @@ export async function loadTopic(path: string): Promise<TopicDefinition> {
     entities: parsed.entities ?? [],
     description: parsed.description ?? "",
     exclude: parsed.exclude ?? [],
+    feeds: parsed.feeds ?? [],
   };
 }
 

@@ -1,10 +1,10 @@
-# Hand Terminal
+# Parallax Fix
 
 Topic-scoped briefing engine: coalesces news + social discussion into a single structured briefing
 built for _intent_ rather than doomscrolling. Provenance on every item, explicit coverage gaps, no
 verdicts.
 
-See [`hand-terminal-spec.md`](./hand-terminal-spec.md) for the full build spec and
+See [`parallax-fix-spec.md`](./parallax-fix-spec.md) for the full build spec and
 [`CLAUDE.md`](./CLAUDE.md) for the working invariants.
 
 ## Runtime
@@ -36,6 +36,7 @@ deno task start topic new riverside-recall \
 
 # Corpus (needs DATABASE_URL → Postgres+pgvector; see below):
 deno task ingest --topic config/topics/riverside-recall.json --limit 50  # Bluesky → embed → store
+deno task start gather --topic config/topics/riverside-recall.json       # Reddit+GDELT+RSS → store, + coverage report
 deno task match  --topic config/topics/riverside-recall.json -k 20 --explain  # ranked + score legend
 
 deno task brief "riverside city council recall"   # stub for the briefing CLI
@@ -63,7 +64,12 @@ deno task check && deno task lint && deno task fmt && deno task test
 Phase 0 (merged): project + security policy + Ports + the **Bluesky/Jetstream adapter** streaming
 normalized `Item`s via `listen`, with unreachable sources reported as coverage gaps (P1).
 
-Phase 1 (in progress): the **Corpus** — a Postgres + pgvector append-only store with embeddings
+Phase 1 (merged): the **Corpus** — a Postgres + pgvector append-only store with embeddings
 (`bge-small-en-v1.5`) and **semantic topic matching** (`ingest` → embed/store, `match` → ranked
-retrieval). More sources, analysis, and briefing land in subsequent phases — see the spec's Build
-Plan.
+retrieval).
+
+Phase 2 (in progress): more sources + **coverage**. **Reddit** (app-only OAuth, poll), **GDELT**
+(keyless news query), and **RSS** (per-topic outlet feeds) adapters behind `SourcePort`, plus the
+`CoverageReport` (P1) — `gather` polls them, stores results, and prints what was queried, counts per
+source, and what it could NOT see (TikTok/Instagram are always-declared blind spots). Analysis and
+briefing land next — see the spec's Build Plan.
