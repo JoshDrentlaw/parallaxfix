@@ -38,6 +38,19 @@ This app **defines its own security policy** — see `SECURITY.md`, with its exe
 - Bounded contexts: ingestion / corpus / analysis / briefing.
 - Normalized `Item` is the lingua franca between stages.
 
+## Corpus stack (Phase 1 decision)
+
+Headed for a multi-user hosted deployment (droplet, signups), so we overrode the spec's SQLite MVP:
+
+- **Storage: Postgres + pgvector** behind `CorpusPort` (`src/corpus/store.ts`). One DB for the
+  append-only event log and the embedding index (HNSW, cosine). `DATABASE_URL` configures it.
+- **Embeddings: local `bge-small-en-v1.5`** via transformers.js behind `EmbeddingPort`
+  (`src/corpus/embed.ts`), 384-dim. Free/private; swappable for a hosted API later without touching
+  the core. The Corpus owns embeddings (append embeds; retrieve embeds the query).
+- **Semantic match**: embed topic → ANN by cosine → drop `exclude` hits → top-k. Keyword/entity
+  hard-filtering is intentionally NOT applied post-retrieval (it reintroduces the brittleness
+  semantic search exists to avoid); `exclude` remains a hard negative.
+
 ## Source rules
 
 - Bluesky Jetstream is free, keyless — the keystone. Build its adapter first.

@@ -45,15 +45,27 @@ export interface SourcePort {
   fetch(topic: TopicDefinition, since?: Date): AsyncIterable<Item>;
 }
 
+/** An item plus how close it sits to the topic, for ranked retrieval. */
+export interface RankedItem {
+  item: Item;
+  /** Cosine similarity in [-1, 1]; ~1 = very close in meaning, ~0 = unrelated. */
+  similarity: number;
+}
+
 /** Storage + retrieval. Knows about Items and vectors; nothing about sources. */
 export interface CorpusPort {
   append(items: Item[]): Promise<void>;
-  /** semantic topic matching: nearest items to the topic embedding */
-  retrieve(topic: TopicDefinition, k: number): Promise<Item[]>;
+  /** semantic topic matching: nearest items to the topic embedding, ranked */
+  retrieve(topic: TopicDefinition, k: number): Promise<RankedItem[]>;
 }
 
 export interface EmbeddingPort {
+  /** Vector length this embedder produces (must match the DB vector column). */
+  readonly dimensions: number;
+  /** Embed documents/items for storage. */
   embed(texts: string[]): Promise<number[][]>;
+  /** Embed a search query; models like bge prepend a retrieval instruction. */
+  embedQuery(text: string): Promise<number[]>;
 }
 
 export interface LLMPort {
