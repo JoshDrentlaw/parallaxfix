@@ -13,7 +13,7 @@
  */
 
 import postgres from "postgres";
-import type { CorpusPort, EmbeddingPort, Item, TopicDefinition } from "../ports.ts";
+import type { CorpusPort, EmbeddingPort, Item, RankedItem, TopicDefinition } from "../ports.ts";
 import { buildTopicQuery, isExcluded } from "../ingestion/topic.ts";
 
 type Sql = ReturnType<typeof postgres>;
@@ -117,23 +117,29 @@ export class PgCorpus implements CorpusPort {
 
   /**
    * Semantic topic matching: embed the topic, pull the nearest candidates by
-   * cosine distance, drop excluded items, return the top `k`.
+   * cosine distance, drop excluded items, return the top `k` with scores.
+   *
+   * pgvector's `<=>` is cosine *distance*, so similarity = 1 - distance.
    */
-  async retrieve(topic: TopicDefinition, k: number): Promise<Item[]> {
+  async retrieve(topic: TopicDefinition, k: number): Promise<RankedItem[]> {
     const qvec = await this.#embedder.embedQuery(buildTopicQuery(topic));
     const lit = vectorLiteral(qvec);
     const sql = this.#sql;
     const rows = await sql`
       SELECT id, source, source_id, author, text, url,
-             created_at, fetched_at, engagement, parent_ref, raw
+             created_at, fetched_at, engagement, parent_ref, raw,
+             1 - (embedding <=> ${lit}::vector) AS similarity
       FROM items
       WHERE embedding IS NOT NULL
       ORDER BY embedding <=> ${lit}::vector
       LIMIT ${this.#pool}
     `;
     return rows
-      .map((r) => rowToItem(r as unknown as Record<string, unknown>))
-      .filter((it) => !isExcluded(it, topic))
+      .map((r) => {
+        const row = r as unknown as Record<string, unknown>;
+        return { item: rowToItem(row), similarity: Number(row.similarity) };
+      })
+      .filter((m) => !isExcluded(m.item, topic))
       .slice(0, k);
   }
 

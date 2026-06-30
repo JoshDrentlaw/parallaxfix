@@ -55,13 +55,25 @@ function coverageNotice(queried: string[], unavailable: Unavailable[] = []): voi
   }
 }
 
-function printItem(item: Item): void {
+function printItem(item: Item, similarity?: number): void {
   const when = item.created_at.toISOString().replace("T", " ").slice(0, 19);
   const text = item.text.replace(/\s+/g, " ").trim();
   const clipped = text.length > 200 ? `${text.slice(0, 197)}…` : text;
-  console.log(`\n[${item.source}] ${when}  ${item.author}`);
+  const score = similarity === undefined ? "" : `  (sim ${similarity.toFixed(3)})`;
+  console.log(`\n[${item.source}] ${when}  ${item.author}${score}`);
   console.log(`  ${clipped || "(no text)"}`);
   console.log(`  ↳ ${item.url}`);
+}
+
+/** Boxed info panel — the CLI form of the future web tooltip. */
+function infoPanel(title: string, body: string): void {
+  const width = 76;
+  const bar = "─".repeat(width);
+  console.log(`\n╭─ ${title} ${"─".repeat(Math.max(0, width - title.length - 3))}╮`);
+  for (const raw of body.split("\n")) {
+    console.log(`│ ${raw}`);
+  }
+  console.log(`╰${bar}╯`);
 }
 
 type Args = ReturnType<typeof parseArgs>;
@@ -195,12 +207,86 @@ async function match(args: Args): Promise<number> {
   const corpus = new PgCorpus({ databaseUrl: dbUrl, embedder: new LocalEmbedder() });
 
   try {
-    const items = await corpus.retrieve(topic, k);
-    console.log(`\nTop ${items.length} match(es) for "${topic.id}":`);
-    for (const it of items) printItem(it);
+    const matches = await corpus.retrieve(topic, k);
+    console.log(`\nTop ${matches.length} match(es) for "${topic.id}":`);
+    for (const m of matches) printItem(m.item, m.similarity);
+
+    if (matches.length > 0) {
+      if (args.explain) {
+        const { COSINE_SIMILARITY_TITLE, COSINE_SIMILARITY_EXPLAINER } = await import(
+          "./corpus/explain.ts"
+        );
+        infoPanel(COSINE_SIMILARITY_TITLE, COSINE_SIMILARITY_EXPLAINER);
+      } else {
+        console.log(
+          "\n(sim = cosine similarity, ~1 closest in meaning. Run with --explain for more.)",
+        );
+      }
+    }
   } finally {
     await corpus.close();
   }
+  return 0;
+}
+
+/**
+ * Topic authoring → config/topics/<id>.json. Interactive prompts when stdin is
+ * a TTY; otherwise driven by flags (--keywords/--entities/--description/--exclude)
+ * so it's scriptable. Each field prefers its flag, then an interactive prompt.
+ */
+async function topicNew(args: Args): Promise<number> {
+  const { slugifyTopicId } = await import("./ingestion/topic.ts");
+
+  const interactive = Deno.stdin.isTerminal();
+  const flag = (k: string): string | undefined =>
+    typeof args[k] === "string" ? String(args[k]).trim() : undefined;
+  const ask = (label: string): string =>
+    interactive ? (globalThis.prompt(`${label}:`) ?? "").trim() : "";
+  const field = (k: string, label: string): string => flag(k) ?? ask(label);
+  const list = (s: string): string[] => s.split(",").map((x) => x.trim()).filter(Boolean);
+
+  if (interactive) console.log("\nNew topic — answer a few prompts (Ctrl+C to cancel).");
+
+  const idRaw = typeof args._[2] === "string" ? String(args._[2]) : field("id", "id (short name)");
+  const id = slugifyTopicId(idRaw);
+  if (!id) {
+    console.error("An id is required — pass `topic new <id>` or --id.");
+    return 2;
+  }
+
+  const topic: TopicDefinition = {
+    id,
+    keywords: list(field("keywords", "keywords (comma-separated)")),
+    entities: list(field("entities", "entities (names/orgs/places to disambiguate)")),
+    description: field("description", "description (natural language — drives semantic matching)"),
+    exclude: list(field("exclude", "exclude (negative keywords)")),
+  };
+
+  if (topic.keywords.length === 0 && topic.description === "") {
+    console.error(
+      "\nRefusing to write an empty topic (no keywords and no description).\n" +
+        "  Interactive: run in a terminal. Scripted: pass --keywords and/or --description.",
+    );
+    return 2;
+  }
+
+  const dir = "config/topics";
+  await Deno.mkdir(dir, { recursive: true });
+  const path = `${dir}/${id}.json`;
+  try {
+    await Deno.stat(path);
+    if (!globalThis.confirm(`${path} already exists — overwrite?`)) {
+      console.log("Aborted.");
+      return 1;
+    }
+  } catch {
+    // doesn't exist yet — fine
+  }
+
+  await Deno.writeTextFile(path, `${JSON.stringify(topic, null, 2)}\n`);
+  console.log(`\nWrote ${path}`);
+  console.log(`Next: deno task ingest --topic ${path} --limit 50`);
+  console.log(`Then: deno task match  --topic ${path} -k 20 --explain`);
   return 0;
 }
 
@@ -222,6 +308,12 @@ async function main(): Promise<number> {
       return await ingest(args);
     case "match":
       return await match(args);
+    case "topic": {
+      const sub = String(args._[1] ?? "");
+      if (sub === "new") return await topicNew(args);
+      console.error("\nUsage: deno task start topic new [<id>]");
+      return 2;
+    }
     case "brief": {
       const topic = args._.slice(1).join(" ").trim();
       if (!topic) {
@@ -238,8 +330,9 @@ async function main(): Promise<number> {
         "Commands:\n" +
           "  status\n" +
           "  listen <keywords> [--topic f] [--limit n]\n" +
-          "  ingest <keywords> [--topic f] [--limit n]   (Bluesky → corpus)\n" +
-          "  match  <keywords> [--topic f] [-k n]        (semantic retrieval)\n" +
+          "  ingest <keywords> [--topic f] [--limit n]      (Bluesky → corpus)\n" +
+          "  match  <keywords> [--topic f] [-k n] [--explain]  (semantic retrieval)\n" +
+          "  topic new [<id>]                               (author a topic file)\n" +
           '  brief  "<topic>"',
       );
       return 2;

@@ -28,9 +28,15 @@ deno task start        # status: runtime config + coverage gaps
 deno task start listen wildfire,riverside --limit 10
 deno task start listen --topic config/topics/example.json --limit 10
 
+# Author a reusable topic (interactive prompts, or flags for scripting):
+deno task start topic new riverside-recall \
+  --keywords "recall,city council" --entities "Riverside" \
+  --description "Recall effort targeting Riverside city council members" \
+  --exclude "basketball"
+
 # Corpus (needs DATABASE_URL → Postgres+pgvector; see below):
-deno task ingest wildfire,riverside --limit 50     # Bluesky → embed → store
-deno task match  wildfire,riverside -k 20          # semantic retrieval, ranked
+deno task ingest --topic config/topics/riverside-recall.json --limit 50  # Bluesky → embed → store
+deno task match  --topic config/topics/riverside-recall.json -k 20 --explain  # ranked + score legend
 
 deno task brief "riverside city council recall"   # stub for the briefing CLI
 ```

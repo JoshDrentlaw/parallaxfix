@@ -1,6 +1,6 @@
 import { assert, assertEquals } from "@std/assert";
 import type { EmbeddingPort, Item } from "../src/ports.ts";
-import { adHocTopic, buildTopicQuery, isExcluded } from "../src/ingestion/topic.ts";
+import { adHocTopic, buildTopicQuery, isExcluded, slugifyTopicId } from "../src/ingestion/topic.ts";
 
 // ── pure helpers (no DB) ──────────────────────────────────────────────────────
 
@@ -40,6 +40,12 @@ Deno.test("buildTopicQuery: joins description + keywords + entities, falls back 
     buildTopicQuery({ ...t, description: "", keywords: [], entities: [] }),
     "riverside-recall",
   );
+});
+
+Deno.test("slugifyTopicId: filesystem-safe slugs", () => {
+  assertEquals(slugifyTopicId("Riverside City Council Recall"), "riverside-city-council-recall");
+  assertEquals(slugifyTopicId("  ¡Hola! 2026 ??"), "hola-2026");
+  assertEquals(slugifyTopicId("already-a-slug"), "already-a-slug");
 });
 
 // ── DB-backed integration (gated on DATABASE_URL) ─────────────────────────────
@@ -94,11 +100,18 @@ Deno.test({
       topic.description = "wildfire evacuations near riverside";
       const results = await corpus.retrieve(topic, 10);
 
-      const ids = results.map((r) => r.id);
+      const ids = results.map((r) => r.item.id);
       assertEquals(ids.filter((id) => id === "a").length, 1, "dedupe: 'a' appears once");
       assert(!ids.includes("b"), "exclude term 'basketball' filters out 'b'");
       assert(ids.includes("a"), "relevant item retrieved");
       assertEquals(ids[0], "a", "most relevant item ranks first");
+
+      // Scores are attached and ordered by descending similarity.
+      assert(
+        results[0].similarity >= results[results.length - 1].similarity,
+        "ranked by similarity",
+      );
+      assert(results.every((r) => r.similarity >= -1 && r.similarity <= 1), "similarity in [-1,1]");
     } finally {
       await corpus.close();
     }

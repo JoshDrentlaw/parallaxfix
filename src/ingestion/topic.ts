@@ -25,6 +25,14 @@ export async function loadTopic(path: string): Promise<TopicDefinition> {
   };
 }
 
+/** Normalize a free-text id into a filesystem-safe slug (e.g. for topic files). */
+export function slugifyTopicId(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 /** Build an ad-hoc topic from CLI keywords (no saved config). */
 export function adHocTopic(keywords: string[]): TopicDefinition {
   return {
