@@ -41,7 +41,6 @@
 
   "tasks": {
     "start": "deno run --allow-net --allow-env --allow-read --allow-write --allow-sys --allow-ffi --allow-run src/main.ts",
-    "brief": "deno run --allow-net --allow-env --allow-read --allow-write --allow-sys --allow-ffi --allow-run src/main.ts brief",
     "dev": "deno run --watch --allow-net --allow-env --allow-read --allow-write --allow-sys --allow-ffi --allow-run src/main.ts",
 
     // Corpus commands use the local embedder (transformers.js → ONNX), whose
@@ -49,6 +48,10 @@
     // --node-modules-dir is an install/runtime setting, not a new grant.
     "ingest": "deno run --node-modules-dir=auto --allow-net --allow-env --allow-read --allow-write --allow-sys --allow-ffi --allow-run src/main.ts ingest",
     "match": "deno run --node-modules-dir=auto --allow-net --allow-env --allow-read --allow-write --allow-sys --allow-ffi --allow-run src/main.ts match",
+
+    // The briefing reads the corpus (local embedder for retrieval) and may call
+    // Claude for labels/claims/synthesis — same grant + the node_modules dir.
+    "brief": "deno run --node-modules-dir=auto --allow-net --allow-env --allow-read --allow-write --allow-sys --allow-ffi --allow-run src/main.ts brief",
 
     // Dev-loop tasks. These need no runtime capabilities of their own.
     "check": "deno check src/main.ts",

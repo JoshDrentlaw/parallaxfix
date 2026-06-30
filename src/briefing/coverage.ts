@@ -71,3 +71,48 @@ export function assembleCoverageReport(
     blind_spot_signals: blindSpotSignals.length ? blindSpotSignals : undefined,
   };
 }
+
+/**
+ * Render a CoverageReport to plain lines (P1, foregrounded). Pure — returns the
+ * lines so both the CLI commands and the briefing renderer share one format and
+ * can't drift. The blind-spot reference signal augments each blind-spot line
+ * (attention, not content), never replacing the "could NOT see" declaration.
+ */
+export function formatCoverageReport(r: CoverageReport): string[] {
+  const out: string[] = [];
+  out.push("══ Coverage report (P1) ══════════════════════════════════");
+  out.push(`  topic  : ${r.topic_id}`);
+  out.push(`  run_at : ${r.run_at.toISOString()}`);
+  out.push(
+    `  window : ${r.window[0].toISOString().slice(0, 19)} … ${
+      r.window[1].toISOString().slice(0, 19)
+    }`,
+  );
+  out.push("  queried:");
+  if (r.sources_queried.length === 0) out.push("    (none)");
+  for (const s of r.sources_queried) {
+    out.push(`    ${s.padEnd(9)} ${r.items_per_source[s] ?? 0} item(s)`);
+  }
+  out.push("  could NOT see:");
+  for (const u of r.sources_unavailable) {
+    out.push(`    ${u.source.padEnd(9)} — ${u.reason}`);
+    // Circling the empty space: if the reachable web points at this blind spot,
+    // surface the pull (attention, NOT content).
+    const sig = r.blind_spot_signals?.find((s) => s.platform === u.source);
+    if (sig) {
+      const by = Object.entries(sig.by_source).map(([s, n]) => `${s} ${n}`).join(", ");
+      out.push(
+        `              ↳ but ${sig.referencing_items} reachable item(s) reference it ` +
+          `(${by}) · ${sig.references_per_hour.toFixed(1)}/h`,
+      );
+      const top = sig.top_targets[0];
+      if (top && top.mentions > 1) {
+        out.push(`                ${top.mentions} converge on ↳ ${top.target}`);
+      }
+    }
+  }
+  if (r.blind_spot_signals?.length) {
+    out.push("    (references = attention, not content; links can be gamed — treat as a lead.)");
+  }
+  return out;
+}

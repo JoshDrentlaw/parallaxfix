@@ -12,7 +12,11 @@
 
 import { parseArgs } from "@std/cli/parse-args";
 import type { CoverageReport, Item, SourcePort, TopicDefinition } from "./ports.ts";
-import { DECLARED_BLIND_SPOTS, type SourceResult } from "./briefing/coverage.ts";
+import {
+  DECLARED_BLIND_SPOTS,
+  formatCoverageReport,
+  type SourceResult,
+} from "./briefing/coverage.ts";
 import { BlueskyJetstreamAdapter } from "./ingestion/bluesky.ts";
 import { adHocTopic, loadTopic } from "./ingestion/topic.ts";
 
@@ -201,40 +205,8 @@ async function ingest(args: Args): Promise<number> {
 
 /** Render the CoverageReport — P1's first-class output, foregrounded. */
 function printCoverageReport(r: CoverageReport): void {
-  console.log("\n══ Coverage report (P1) ══════════════════════════════════");
-  console.log(`  topic  : ${r.topic_id}`);
-  console.log(`  run_at : ${r.run_at.toISOString()}`);
-  console.log(
-    `  window : ${r.window[0].toISOString().slice(0, 19)} … ${
-      r.window[1].toISOString().slice(0, 19)
-    }`,
-  );
-  console.log("  queried:");
-  if (r.sources_queried.length === 0) console.log("    (none)");
-  for (const s of r.sources_queried) {
-    console.log(`    ${s.padEnd(9)} ${r.items_per_source[s] ?? 0} item(s)`);
-  }
-  console.log("  could NOT see:");
-  for (const u of r.sources_unavailable) {
-    console.log(`    ${u.source.padEnd(9)} — ${u.reason}`);
-    // Circling the empty space: if the reachable web points at this blind spot,
-    // surface the pull (attention, NOT content).
-    const sig = r.blind_spot_signals?.find((s) => s.platform === u.source);
-    if (sig) {
-      const by = Object.entries(sig.by_source).map(([s, n]) => `${s} ${n}`).join(", ");
-      console.log(
-        `              ↳ but ${sig.referencing_items} reachable item(s) reference it ` +
-          `(${by}) · ${sig.references_per_hour.toFixed(1)}/h`,
-      );
-      const top = sig.top_targets[0];
-      if (top && top.mentions > 1) {
-        console.log(`                ${top.mentions} converge on ↳ ${top.target}`);
-      }
-    }
-  }
-  if (r.blind_spot_signals?.length) {
-    console.log("    (references = attention, not content; links can be gamed — treat as a lead.)");
-  }
+  console.log();
+  for (const line of formatCoverageReport(r)) console.log(line);
 }
 
 /** Poll the pull-based sources (Reddit/GDELT/RSS), store, and report coverage. */
@@ -342,6 +314,102 @@ async function analyze(args: Args): Promise<number> {
   }
 
   coverageNotice([]);
+  return 0;
+}
+
+/**
+ * Phase 4 — the briefing. Reads the stored corpus for the topic, clusters into
+ * narratives (P5), labels + extracts evidence-tagged claims (P4) when a key is
+ * present, derives the coverage report (P1) with the blind-spot signal, and
+ * renders one structured briefing with provenance (P3) and no verdict (P2). The
+ * LLM steps are optional: without ANTHROPIC_API_KEY it still emits the full
+ * structure (labels/overview omitted), never pretending to more than it has.
+ */
+async function brief(args: Args): Promise<number> {
+  const dbUrl = requireDatabaseUrl();
+  if (!dbUrl) return 2;
+
+  // A briefing topic may arrive as a quoted or unquoted phrase; use the whole
+  // thing (comma-separated → multiple keywords), or a --topic file if given.
+  let topic: TopicDefinition;
+  if (typeof args.topic === "string") {
+    topic = await loadTopic(args.topic);
+  } else {
+    const phrase = args._.slice(1).join(" ").trim();
+    topic = adHocTopic(phrase.split(",").map((s) => s.trim()).filter(Boolean));
+  }
+  const k = Number(args.k ?? 200);
+  const now = new Date();
+
+  const { PgCorpus } = await import("./corpus/store.ts");
+  const { LocalEmbedder } = await import("./corpus/embed.ts");
+  const { clusterItems } = await import("./analysis/cluster.ts");
+  const { extractClaims } = await import("./analysis/claims.ts");
+  const { summarizeBlindSpotSignals } = await import("./analysis/references.ts");
+  const { assembleCoverageReport } = await import("./briefing/coverage.ts");
+  const { assembleBriefing, renderBriefing, synthesizeBriefing } = await import(
+    "./briefing/synthesize.ts"
+  );
+
+  const corpus = new PgCorpus({ databaseUrl: dbUrl, embedder: new LocalEmbedder() });
+  let items: Item[];
+  try {
+    items = await corpus.retrieveForAnalysis(topic, k);
+  } finally {
+    await corpus.close();
+  }
+
+  console.log(`\nBriefing "${topic.id}" over ${items.length} stored item(s)…`);
+  console.log("  (reads the corpus as-is — run `ingest`/`gather` first to refresh it)");
+
+  const clusters = clusterItems(items, { now });
+  const itemsById = new Map(items.map((it) => [it.id, it]));
+
+  // Optional paid enrichment: label narratives + extract claims via Claude.
+  let claims: import("./ports.ts").Claim[] = [];
+  const hasKey = Boolean(Deno.env.get("ANTHROPIC_API_KEY"));
+  let llm: import("./ports.ts").LLMPort | null = null;
+  if (hasKey) {
+    const { AnthropicLLM } = await import("./llm/anthropic.ts");
+    llm = new AnthropicLLM();
+    console.log("  labeling narratives…");
+    await Promise.all(clusters.map(async (c) => {
+      const texts = c.item_ids.map((id) => itemsById.get(id)?.text ?? "").filter(Boolean);
+      c.label = await llm!.labelCluster(texts);
+    }));
+    console.log("  extracting claims via Haiku batch (this can take a while)…");
+    claims = await extractClaims(clusters, itemsById, llm);
+  } else {
+    console.log("  (ANTHROPIC_API_KEY not set — labels, claims, and prose synthesis skipped)");
+  }
+
+  // Coverage from what the corpus actually holds for this topic + blind-spot pull.
+  const bySource = new Map<string, Item[]>();
+  for (const it of items) {
+    (bySource.get(it.source) ?? bySource.set(it.source, []).get(it.source)!).push(it);
+  }
+  const results: SourceResult[] = [...bySource.entries()].map(([source, its]) => ({
+    source,
+    items: its,
+  }));
+  const signals = summarizeBlindSpotSignals(items, { now });
+  const coverage = assembleCoverageReport(topic.id, results, now, signals);
+
+  let briefing = assembleBriefing(topic.id, clusters, claims, itemsById, coverage, {
+    generatedAt: now,
+  });
+  if (llm) {
+    console.log("  synthesizing overview…");
+    try {
+      briefing = await synthesizeBriefing(briefing, llm);
+    } catch (err) {
+      // Synthesis is best-effort; degrade to the structured briefing (P1 honesty).
+      console.error(`  ! synthesis failed (${err instanceof Error ? err.message : err}) — `);
+      console.error("    rendering the structured briefing without prose.");
+    }
+  }
+
+  console.log("\n" + renderBriefing(briefing));
   return 0;
 }
 
@@ -470,14 +538,12 @@ async function main(): Promise<number> {
       return 2;
     }
     case "brief": {
-      const topic = args._.slice(1).join(" ").trim();
-      if (!topic) {
-        console.error('\nUsage: deno task brief "<topic>"');
+      const inline = args._.slice(1).join(" ").trim();
+      if (!inline && typeof args.topic !== "string") {
+        console.error('\nUsage: deno task brief "<topic>"   (or --topic <file>)');
         return 2;
       }
-      console.log(`\nbrief("${topic}") — synthesis pipeline not yet implemented.`);
-      coverageNotice([]);
-      return 0;
+      return await brief(args);
     }
     default:
       console.error(`\nUnknown command: ${cmd}`);
@@ -490,7 +556,7 @@ async function main(): Promise<number> {
           "  match  <keywords> [--topic f] [-k n] [--explain]  (semantic retrieval)\n" +
           "  analyze <keywords> [--topic f] [-k n]          (cluster + velocity + claims)\n" +
           "  topic new [<id>]                               (author a topic file)\n" +
-          '  brief  "<topic>"',
+          '  brief  "<topic>" [--topic f] [-k n]            (structured briefing: narratives + claims + coverage)',
       );
       return 2;
   }
