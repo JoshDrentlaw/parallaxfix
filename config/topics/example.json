@@ -3,5 +3,9 @@
   "keywords": ["riverside", "city council", "recall"],
   "entities": ["Riverside", "Riverside City Council"],
   "description": "Recall effort targeting Riverside, CA city council members.",
-  "exclude": ["basketball", "lakers"]
+  "exclude": ["basketball", "lakers"],
+  "feeds": [
+    "https://www.pe.com/feed/",
+    "https://raincrossgazette.example/rss"
+  ]
 }
