@@ -11,12 +11,8 @@
  */
 
 import { parseArgs } from "@std/cli/parse-args";
-import type { CoverageReport, Item, SourcePort, TopicDefinition } from "./ports.ts";
-import {
-  DECLARED_BLIND_SPOTS,
-  formatCoverageReport,
-  type SourceResult,
-} from "./briefing/coverage.ts";
+import type { CoverageReport, Item, TopicDefinition } from "./ports.ts";
+import { DECLARED_BLIND_SPOTS, formatCoverageReport } from "./briefing/coverage.ts";
 import { BlueskyJetstreamAdapter } from "./ingestion/bluesky.ts";
 import { adHocTopic, loadTopic } from "./ingestion/topic.ts";
 
@@ -215,50 +211,14 @@ async function gather(args: Args): Promise<number> {
   if (!dbUrl) return 2;
 
   const topic = await resolveTopic(args);
-
-  const { PgCorpus } = await import("./corpus/store.ts");
-  const { LocalEmbedder } = await import("./corpus/embed.ts");
-  const { GdeltAdapter } = await import("./ingestion/gdelt.ts");
-  const { RedditAdapter } = await import("./ingestion/reddit.ts");
-  const { RssAdapter } = await import("./ingestion/rss.ts");
-  const { assembleCoverageReport } = await import("./briefing/coverage.ts");
-
-  const corpus = new PgCorpus({ databaseUrl: dbUrl, embedder: new LocalEmbedder() });
-  await corpus.init();
-
-  const adapters: SourcePort[] = [
-    new GdeltAdapter(),
-    new RedditAdapter(),
-    new RssAdapter({ feeds: topic.feeds }),
-  ];
+  const { gatherSources } = await import("./pipeline.ts");
 
   console.log(`\nGathering pull-based sources for "${topic.id}"…`);
-  const results: SourceResult[] = [];
-  try {
-    for (const adapter of adapters) {
-      try {
-        const items: Item[] = [];
-        for await (const item of adapter.fetch(topic)) items.push(item);
-        await corpus.append(items);
-        results.push({ source: adapter.name, items });
-        console.log(`  ${adapter.name}: ${items.length} item(s)`);
-      } catch (err) {
-        const reason = err instanceof Error ? err.message : String(err);
-        results.push({ source: adapter.name, items: [], unavailable: reason });
-        console.log(`  ${adapter.name}: unavailable — ${reason}`);
-      }
-    }
-  } finally {
-    await corpus.close();
-  }
-
-  // Circle the blind spots: measure how hard the gathered, reachable items
-  // point at TikTok/Instagram (a known unknown made visible).
-  const { summarizeBlindSpotSignals } = await import("./analysis/references.ts");
-  const allItems = results.flatMap((r) => r.items);
-  const signals = summarizeBlindSpotSignals(allItems);
-
-  printCoverageReport(assembleCoverageReport(topic.id, results, new Date(), signals));
+  const coverage = await gatherSources(topic, {
+    databaseUrl: dbUrl,
+    onProgress: (m) => console.log(`  ${m}`),
+  });
+  printCoverageReport(coverage);
   return 0;
 }
 
@@ -339,77 +299,31 @@ async function brief(args: Args): Promise<number> {
     topic = adHocTopic(phrase.split(",").map((s) => s.trim()).filter(Boolean));
   }
   const k = Number(args.k ?? 200);
-  const now = new Date();
 
-  const { PgCorpus } = await import("./corpus/store.ts");
-  const { LocalEmbedder } = await import("./corpus/embed.ts");
-  const { clusterItems } = await import("./analysis/cluster.ts");
-  const { extractClaims } = await import("./analysis/claims.ts");
-  const { summarizeBlindSpotSignals } = await import("./analysis/references.ts");
-  const { assembleCoverageReport } = await import("./briefing/coverage.ts");
-  const { assembleBriefing, renderBriefing, synthesizeBriefing } = await import(
-    "./briefing/synthesize.ts"
-  );
+  const { briefTopic } = await import("./pipeline.ts");
+  const { renderBriefing } = await import("./briefing/synthesize.ts");
 
-  const corpus = new PgCorpus({ databaseUrl: dbUrl, embedder: new LocalEmbedder() });
-  let items: Item[];
-  try {
-    items = await corpus.retrieveForAnalysis(topic, k);
-  } finally {
-    await corpus.close();
-  }
-
-  console.log(`\nBriefing "${topic.id}" over ${items.length} stored item(s)…`);
+  console.log(`\nBriefing "${topic.id}"…`);
   console.log("  (reads the corpus as-is — run `ingest`/`gather` first to refresh it)");
-
-  const clusters = clusterItems(items, { now });
-  const itemsById = new Map(items.map((it) => [it.id, it]));
-
-  // Optional paid enrichment: label narratives + extract claims via Claude.
-  let claims: import("./ports.ts").Claim[] = [];
-  const hasKey = Boolean(Deno.env.get("ANTHROPIC_API_KEY"));
-  let llm: import("./ports.ts").LLMPort | null = null;
-  if (hasKey) {
-    const { AnthropicLLM } = await import("./llm/anthropic.ts");
-    llm = new AnthropicLLM();
-    console.log("  labeling narratives…");
-    await Promise.all(clusters.map(async (c) => {
-      const texts = c.item_ids.map((id) => itemsById.get(id)?.text ?? "").filter(Boolean);
-      c.label = await llm!.labelCluster(texts);
-    }));
-    console.log("  extracting claims via Haiku batch (this can take a while)…");
-    claims = await extractClaims(clusters, itemsById, llm);
-  } else {
-    console.log("  (ANTHROPIC_API_KEY not set — labels, claims, and prose synthesis skipped)");
-  }
-
-  // Coverage from what the corpus actually holds for this topic + blind-spot pull.
-  const bySource = new Map<string, Item[]>();
-  for (const it of items) {
-    (bySource.get(it.source) ?? bySource.set(it.source, []).get(it.source)!).push(it);
-  }
-  const results: SourceResult[] = [...bySource.entries()].map(([source, its]) => ({
-    source,
-    items: its,
-  }));
-  const signals = summarizeBlindSpotSignals(items, { now });
-  const coverage = assembleCoverageReport(topic.id, results, now, signals);
-
-  let briefing = assembleBriefing(topic.id, clusters, claims, itemsById, coverage, {
-    generatedAt: now,
-  });
-  if (llm) {
-    console.log("  synthesizing overview…");
-    try {
-      briefing = await synthesizeBriefing(briefing, llm);
-    } catch (err) {
-      // Synthesis is best-effort; degrade to the structured briefing (P1 honesty).
-      console.error(`  ! synthesis failed (${err instanceof Error ? err.message : err}) — `);
-      console.error("    rendering the structured briefing without prose.");
-    }
-  }
+  const briefing = await briefTopic(topic, {
+    databaseUrl: dbUrl,
+    onProgress: (m) => console.log(`  ${m}`),
+  }, { k });
 
   console.log("\n" + renderBriefing(briefing));
+  return 0;
+}
+
+/**
+ * The web UI — same pipeline as the CLI, served over HTTP with a dark-mode
+ * front end. Binds localhost by default; pass --host 0.0.0.0 to expose it
+ * (see SECURITY.md §3a before you do).
+ */
+async function serve(args: Args): Promise<number> {
+  const port = Number(args.port ?? 8420);
+  const hostname = String(args.host ?? "127.0.0.1");
+  const { startServer } = await import("./web/server.ts");
+  await startServer({ hostname, port }).finished;
   return 0;
 }
 
@@ -545,6 +459,8 @@ async function main(): Promise<number> {
       }
       return await brief(args);
     }
+    case "serve":
+      return await serve(args);
     default:
       console.error(`\nUnknown command: ${cmd}`);
       console.error(
@@ -556,7 +472,8 @@ async function main(): Promise<number> {
           "  match  <keywords> [--topic f] [-k n] [--explain]  (semantic retrieval)\n" +
           "  analyze <keywords> [--topic f] [-k n]          (cluster + velocity + claims)\n" +
           "  topic new [<id>]                               (author a topic file)\n" +
-          '  brief  "<topic>" [--topic f] [-k n]            (structured briefing: narratives + claims + coverage)',
+          '  brief  "<topic>" [--topic f] [-k n]            (structured briefing: narratives + claims + coverage)\n' +
+          "  serve  [--port 8420] [--host 127.0.0.1]        (web UI over the same pipeline)",
       );
       return 2;
   }

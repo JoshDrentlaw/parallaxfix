@@ -53,6 +53,10 @@
     // Claude for labels/claims/synthesis — same grant + the node_modules dir.
     "brief": "deno run --node-modules-dir=auto --allow-net --allow-env --allow-read --allow-write --allow-sys --allow-ffi --allow-run src/main.ts brief",
 
+    // The web UI drives the same pipeline over HTTP (localhost by default;
+    // SECURITY.md §3a). Same grant: --allow-net covers the inbound listener.
+    "serve": "deno run --node-modules-dir=auto --allow-net --allow-env --allow-read --allow-write --allow-sys --allow-ffi --allow-run src/main.ts serve",
+
     // Dev-loop tasks. These need no runtime capabilities of their own.
     "check": "deno check src/main.ts",
     "fmt": "deno fmt",
