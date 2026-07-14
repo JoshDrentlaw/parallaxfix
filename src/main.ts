@@ -215,7 +215,9 @@ function parseDateFlag(v: unknown): Date | null {
 /**
  * Poll the pull-based sources (Reddit/GDELT/RSS), store, and report coverage.
  * `--since`/`--until` switch GDELT/Reddit into historical mode (explicit date
- * range + sort=relevance&t=all) instead of their live-recency defaults.
+ * range + sort=relevance&t=all) instead of their live-recency defaults, and
+ * add Bluesky's searchPosts history search alongside them (the live Jetstream
+ * keystone stays a separate `listen`/`ingest` step either way).
  */
 async function gather(args: Args): Promise<number> {
   const dbUrl = requireDatabaseUrl();
@@ -508,7 +510,8 @@ async function main(): Promise<number> {
           "  listen <keywords> [--topic f] [--limit n]\n" +
           "  ingest <keywords> [--topic f] [--limit n]      (Bluesky → corpus)\n" +
           "  gather <keywords> [--topic f] [--since d] [--until d]  (Reddit+GDELT+RSS → corpus, + coverage;\n" +
-          "                                                  --since/--until switch to historical mode)\n" +
+          "                                                  --since/--until switch to historical mode,\n" +
+          "                                                  adding Bluesky searchPosts)\n" +
           "  match  <keywords> [--topic f] [-k n] [--min-similarity f] [--explain]  (semantic retrieval)\n" +
           "  analyze <keywords> [--topic f] [-k n] [--min-similarity f]  (cluster + velocity + relevance + claims)\n" +
           "  topic new [<id>]                               (author a topic file)\n" +

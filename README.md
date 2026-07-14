@@ -144,9 +144,18 @@ a real match. Closed so far:
 - **GDELT** defaults to a much wider `timespan` and accepts an explicit
   `startdatetime`/`enddatetime` range instead of the old 1-day window.
 - **Reddit** can search `sort=relevance&t=all` instead of the recency-biased `sort=new` default.
-- `gather --since <date> --until <date>` switches both of the above into historical mode in one
-  step. The web UI has matching Since/Until and Min-similarity inputs.
+- **Bluesky** gets a second adapter mode, `BlueskySearchAdapter` (`app.bsky.feed.searchPosts`) —
+  keyword + date-range history search over the AppView's index, alongside (not instead of) the live
+  Jetstream firehose. Jetstream is fundamentally live-only by construction (`listen`/`ingest` only
+  see what streams by while connected), so reaching backward needed a different adapter, not a
+  parameter; the same-post `(did, rkey)` key means an item ingested via either path dedupes to one
+  row. Keyless by default (`public.api.bsky.app`); `BLUESKY_ACCESS_TOKEN` is optional, for higher
+  rate limits.
+- `gather --since <date> --until <date>` switches GDELT, Reddit, and Bluesky search into historical
+  mode together in one step. The web UI has matching Since/Until and Min-similarity inputs.
 
-Bluesky historical search (`app.bsky.feed.searchPosts`, a second adapter mode alongside the live
-Jetstream firehose) is **deferred** per the plan — real work, sequenced last, only once the cheaper
-fixes above are shown not to be enough for the case at hand.
+All four items from `historical-research-plan.md` are implemented. None of the source-widening work
+(GDELT, Reddit, Bluesky search) has been re-verified against the live APIs from this environment —
+egress to `api.gdeltproject.org` and `public.api.bsky.app` is blocked by this sandbox's network
+policy — so treat the widened defaults and endpoint shapes as built-to-spec, not field-tested;
+confirm against a real query before relying on them in production.
