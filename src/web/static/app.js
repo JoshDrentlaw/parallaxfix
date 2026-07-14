@@ -67,7 +67,7 @@ function chip(state, label) {
 
 async function loadStatus() {
   try {
-    const s = await (await fetch("/api/status")).json();
+    const s = await (await fetch("api/status")).json();
     const chips = $("#status-chips");
     chips.replaceChildren(
       chip(
@@ -86,7 +86,7 @@ async function loadStatus() {
 
 async function loadTopics() {
   try {
-    const topics = await (await fetch("/api/topics")).json();
+    const topics = await (await fetch("api/topics")).json();
     const select = $("#topic-select");
     for (const t of topics) {
       select.append(el("option", { value: t.id, text: t.id }));
@@ -317,7 +317,7 @@ async function runGather() {
   clearOutput();
   setBusy("gathering Reddit + GDELT + RSS into the corpus…");
   try {
-    const { coverage } = await post("/api/gather", requestBody());
+    const { coverage } = await post("api/gather", requestBody());
     $("#results").replaceChildren(
       el("h2", {
         class: "section-title",
@@ -336,7 +336,7 @@ async function runBrief() {
   clearOutput();
   setBusy("clustering, labeling, extracting claims — the Haiku batch step can take a while…");
   try {
-    const briefing = await post("/api/brief", requestBody());
+    const briefing = await post("api/brief", requestBody());
     $("#results").replaceChildren(...renderBriefing(briefing));
   } catch (err) {
     showError(err);
