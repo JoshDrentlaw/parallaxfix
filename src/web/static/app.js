@@ -181,6 +181,7 @@ function renderNarrative(n, i, provenance) {
       "span",
       { class: "narrative-meta" },
       el("span", { class: "velocity", text: `${n.velocity.toFixed(2)}/h` }),
+      el("span", { class: "relevance", text: `relevance ${n.relevance.toFixed(2)}` }),
       ` · ${n.size} item(s) · first seen ${fmtTime(n.first_seen)}`,
     ),
   );
@@ -266,7 +267,11 @@ function renderBriefing(b) {
   );
   if (b.narratives.length === 0) {
     out.push(
-      el("p", { class: "empty", text: "No clustered items for this topic — ingest/gather first." }),
+      el("p", {
+        class: "empty",
+        text: "No strong matches for this topic — nothing cleared the similarity floor, or " +
+          "ingest/gather need to run first.",
+      }),
     );
   }
   b.narratives.forEach((n, i) => out.push(renderNarrative(n, i, b.provenance)));
@@ -279,7 +284,14 @@ function requestBody() {
   const topicId = $("#topic-select").value;
   const keywords = $("#keywords").value;
   const k = Number($("#k").value) || 200;
-  return topicId ? { topicId, k } : { keywords, k };
+  const minSimilarity = $("#min-similarity").value;
+  const since = $("#since").value;
+  const until = $("#until").value;
+  const base = topicId ? { topicId, k } : { keywords, k };
+  if (minSimilarity !== "") base.minSimilarity = Number(minSimilarity);
+  if (since) base.since = since;
+  if (until) base.until = until;
+  return base;
 }
 
 async function post(path, body) {

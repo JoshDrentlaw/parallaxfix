@@ -13,11 +13,28 @@
  */
 
 import postgres from "postgres";
-import type { CorpusPort, EmbeddingPort, Item, RankedItem, TopicDefinition } from "../ports.ts";
+import type {
+  CorpusPort,
+  EmbeddingPort,
+  Item,
+  RankedItem,
+  RetrieveOptions,
+  TopicDefinition,
+} from "../ports.ts";
 import { buildTopicQuery, isExcluded } from "../ingestion/topic.ts";
 
 type Sql = ReturnType<typeof postgres>;
 type Json = Parameters<Sql["json"]>[0];
+
+/**
+ * Conservative starting floor for retrieval (P1: no result should be presented
+ * as a match without clearing some bar). Deliberately loose rather than tight —
+ * cutting too aggressively risks a new failure mode (real matches silently
+ * dropped) that's just as dishonest as no floor at all. Tune empirically
+ * against real queries (see historical-research-plan.md item 1); this has not
+ * been tuned against bge-small-en-v1.5's actual similarity distribution.
+ */
+export const DEFAULT_MIN_SIMILARITY = 0.35;
 
 /** pgvector text input form: `[0.1,0.2,...]`. */
 function vectorLiteral(v: number[]): string {
@@ -46,17 +63,21 @@ export interface PgCorpusOptions {
   embedder: EmbeddingPort;
   /** Candidate pool pulled from the ANN index before post-filtering. */
   candidatePool?: number;
+  /** Default minimum-similarity floor for retrieve/retrieveForAnalysis (per-call opts override it). */
+  minSimilarity?: number;
 }
 
 export class PgCorpus implements CorpusPort {
   readonly #sql: Sql;
   readonly #embedder: EmbeddingPort;
   readonly #pool: number;
+  readonly #minSimilarity: number;
 
   constructor(opts: PgCorpusOptions) {
     this.#sql = postgres(opts.databaseUrl, { onnotice: () => {} });
     this.#embedder = opts.embedder;
     this.#pool = opts.candidatePool ?? 200;
+    this.#minSimilarity = opts.minSimilarity ?? DEFAULT_MIN_SIMILARITY;
   }
 
   /** Idempotent schema setup: pgvector extension, items table, indexes. */
@@ -117,11 +138,18 @@ export class PgCorpus implements CorpusPort {
 
   /**
    * Semantic topic matching: embed the topic, pull the nearest candidates by
-   * cosine distance, drop excluded items, return the top `k` with scores.
+   * cosine distance, drop excluded items and anything that doesn't clear the
+   * similarity floor (P1: never present a weak nearest-neighbor as a real
+   * match), return the top `k` with scores.
    *
    * pgvector's `<=>` is cosine *distance*, so similarity = 1 - distance.
    */
-  async retrieve(topic: TopicDefinition, k: number): Promise<RankedItem[]> {
+  async retrieve(
+    topic: TopicDefinition,
+    k: number,
+    opts: RetrieveOptions = {},
+  ): Promise<RankedItem[]> {
+    const floor = opts.minSimilarity ?? this.#minSimilarity;
     const qvec = await this.#embedder.embedQuery(buildTopicQuery(topic));
     const lit = vectorLiteral(qvec);
     const sql = this.#sql;
@@ -139,22 +167,30 @@ export class PgCorpus implements CorpusPort {
         const row = r as unknown as Record<string, unknown>;
         return { item: rowToItem(row), similarity: Number(row.similarity) };
       })
-      .filter((m) => !isExcluded(m.item, topic))
+      .filter((m) => !isExcluded(m.item, topic) && m.similarity >= floor)
       .slice(0, k);
   }
 
   /**
-   * Like `retrieve`, but returns full `Item`s WITH their embeddings populated,
-   * for the analysis stage (clustering needs the vectors). Excludes are applied.
+   * Like `retrieve`, but returns full `Item`s (embeddings populated, for the
+   * analysis/clustering stage) paired with their topic similarity, so
+   * downstream narratives can carry topic relevance (not just velocity).
+   * Excludes and the similarity floor are both applied.
    */
-  async retrieveForAnalysis(topic: TopicDefinition, k: number): Promise<Item[]> {
+  async retrieveForAnalysis(
+    topic: TopicDefinition,
+    k: number,
+    opts: RetrieveOptions = {},
+  ): Promise<RankedItem[]> {
+    const floor = opts.minSimilarity ?? this.#minSimilarity;
     const qvec = await this.#embedder.embedQuery(buildTopicQuery(topic));
     const lit = vectorLiteral(qvec);
     const sql = this.#sql;
     const rows = await sql`
       SELECT id, source, source_id, author, text, url,
              created_at, fetched_at, engagement, parent_ref, raw,
-             embedding::text AS embedding
+             embedding::text AS embedding,
+             1 - (embedding <=> ${lit}::vector) AS similarity
       FROM items
       WHERE embedding IS NOT NULL
       ORDER BY embedding <=> ${lit}::vector
@@ -168,9 +204,9 @@ export class PgCorpus implements CorpusPort {
         item.embedding = typeof row.embedding === "string"
           ? JSON.parse(row.embedding) as number[]
           : null;
-        return item;
+        return { item, similarity: Number(row.similarity) };
       })
-      .filter((it) => !isExcluded(it, topic));
+      .filter((m) => !isExcluded(m.item, topic) && m.similarity >= floor);
   }
 
   /** Test helper: wipe the corpus. */

@@ -65,6 +65,13 @@ export interface ClusterOptions {
   threshold?: number;
   /** "now" for velocity scoring (injected for deterministic tests). */
   now?: Date;
+  /**
+   * Per-item cosine similarity to the topic query (from retrieval), used to
+   * score each cluster's `relevance` — how close the narrative actually sits to
+   * what was asked for, not just how fast it's moving (P5 is rate, not truth).
+   * Items missing from the map contribute 0.
+   */
+  similarityById?: Map<string, number>;
 }
 
 /**
@@ -98,6 +105,7 @@ export function clusterItems(items: Item[], opts: ClusterOptions = {}): Cluster[
     const members = idxs.map((i) => pts[i]);
     const itemIds = members.map((m) => m.id);
     const timestamps = members.map((m) => m.created_at);
+    const sims = itemIds.map((id) => opts.similarityById?.get(id) ?? 0);
     clusters.push({
       id: stableId("cluster", [...itemIds].sort().join(",")),
       item_ids: itemIds,
@@ -106,6 +114,7 @@ export function clusterItems(items: Item[], opts: ClusterOptions = {}): Cluster[
       first_seen: new Date(Math.min(...timestamps.map((t) => t.getTime()))),
       velocity: computeVelocity(timestamps, now),
       size: members.length,
+      relevance: sims.reduce((a, b) => a + b, 0) / sims.length,
     });
   }
 

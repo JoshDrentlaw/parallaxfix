@@ -39,12 +39,19 @@ deno task ingest --topic config/topics/riverside-recall.json --limit 50  # Blues
 deno task start gather --topic config/topics/riverside-recall.json       # Reddit+GDELT+RSS → store, + coverage report
 deno task match  --topic config/topics/riverside-recall.json -k 20 --explain  # ranked + score legend
 
-# Analysis (clusters → velocity → claims; claim extraction needs ANTHROPIC_API_KEY):
+# Historical research (a multi-year-old story, not a live one): widen the window.
+# GDELT switches to an explicit date range, Reddit to sort=relevance&t=all.
+deno task start gather --topic config/topics/old-story.json --since 2018-01-01 --until 2018-12-31
+
+# Analysis (clusters → velocity → relevance → claims; claim extraction needs ANTHROPIC_API_KEY):
 deno task start analyze --topic config/topics/riverside-recall.json -k 200
 
 # Briefing (Phase 4): cluster → label → claims → coverage → structured briefing
 deno task brief "riverside city council recall"
 deno task brief --topic config/topics/riverside-recall.json -k 200
+
+# All retrieval commands (match/analyze/brief) accept --min-similarity to override the
+# corpus's default relevance floor — nothing below it is ever presented as a match (P1).
 
 # Web UI (dark mode, same pipeline): gather + brief from the browser
 deno task serve                      # → http://127.0.0.1:8420
@@ -122,3 +129,24 @@ the corpus actually holds, and renders one structured briefing: provenance on ev
 (Sonnet/Opus) that describes and attributes but renders **no verdict and recommends no action**
 (P2). The LLM steps are optional — without `ANTHROPIC_API_KEY` the full structure still prints, with
 labels and prose omitted rather than faked.
+
+### Historical research (see `historical-research-plan.md`)
+
+Every adapter used to be recency-windowed by construction (GDELT `timespan: "1d"`, Reddit
+`sort=new`), and retrieval had no relevance floor — so a query for an old, specific story could
+silently surface _whatever's nearest in the corpus_, however unrelated, and present it as if it were
+a real match. Closed so far:
+
+- **Similarity floor (P1).** `match`/`analyze`/`brief` all take `--min-similarity` (default set on
+  the corpus). Nothing below the floor is returned; when nothing clears it, the run says so plainly
+  instead of rendering an empty or fabricated result. Narratives now carry **relevance** (mean
+  topic-similarity) alongside velocity, in the CLI and the web UI.
+- **GDELT** defaults to a much wider `timespan` and accepts an explicit
+  `startdatetime`/`enddatetime` range instead of the old 1-day window.
+- **Reddit** can search `sort=relevance&t=all` instead of the recency-biased `sort=new` default.
+- `gather --since <date> --until <date>` switches both of the above into historical mode in one
+  step. The web UI has matching Since/Until and Min-similarity inputs.
+
+Bluesky historical search (`app.bsky.feed.searchPosts`, a second adapter mode alongside the live
+Jetstream firehose) is **deferred** per the plan — real work, sequenced last, only once the cheaper
+fixes above are shown not to be enough for the case at hand.

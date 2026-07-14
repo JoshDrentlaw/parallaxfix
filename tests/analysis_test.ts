@@ -71,3 +71,17 @@ Deno.test("clusterItems: empty / all-embeddingless input → no clusters", () =>
   assertEquals(clusterItems([]), []);
   assertEquals(clusterItems([item("x", null, NOW)]), []);
 });
+
+Deno.test("clusterItems: relevance is the mean topic-similarity of member items", () => {
+  const items = [
+    item("a1", [1, 0, 0], hoursAgo(0.5)),
+    item("a2", [0.99, 0.1, 0], hoursAgo(1)),
+  ];
+  const similarityById = new Map([["a1", 0.9], ["a2", 0.7]]);
+  const clusters = clusterItems(items, { now: NOW, similarityById });
+  assertEquals(clusters.length, 1);
+  assertAlmostEquals(clusters[0].relevance, 0.8);
+
+  // Items missing from the map contribute 0; no map at all → relevance 0.
+  assertEquals(clusterItems(items, { now: NOW })[0].relevance, 0);
+});

@@ -42,6 +42,7 @@ Deno.test("extractClaims: assembles, links to clusters, de-dupes, merges provena
     first_seen: new Date("2026-06-29T12:00:00Z"),
     velocity: 1,
     size: 2,
+    relevance: 0.8,
   };
   const itemsById = new Map([
     ["a1", item("a1", "post 1")],

@@ -29,6 +29,13 @@ function parseSeendate(s: string | undefined): Date {
   return new Date(Date.UTC(+y, +mo - 1, +d, +h, +mi, +se));
 }
 
+/** Format a Date into GDELT's `STARTDATETIME`/`ENDDATETIME` form: "YYYYMMDDHHMMSS" (UTC). */
+export function toGdeltDatetime(d: Date): string {
+  const p = (n: number, len = 2) => String(n).padStart(len, "0");
+  return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}` +
+    `${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}`;
+}
+
 export function normalizeGdeltArticle(a: GdeltArticle): Item | null {
   const url = a.url;
   if (!url) return null;
@@ -48,31 +55,63 @@ export function normalizeGdeltArticle(a: GdeltArticle): Item | null {
   };
 }
 
+/**
+ * Default `timespan` when no explicit range is given. Widened from the
+ * original "1d" (a live-monitoring default that made GDELT structurally unable
+ * to reach a multi-year-old story — see historical-research-plan.md item 2).
+ * "3months" is GDELT's documented practical ceiling for the relative-window
+ * form; anything older needs explicit `startDatetime`/`endDatetime` instead.
+ * NOTE: not re-verified against the live DOC 2.0 API in this environment
+ * (egress to api.gdeltproject.org is blocked by this sandbox's network
+ * policy) — re-check actual archive depth/behavior against real queries
+ * before relying on it, per the plan's own "don't assume" instruction.
+ */
+const DEFAULT_TIMESPAN = "3months";
+
 export interface GdeltOptions {
   maxRecords?: number;
-  /** Timespan window, GDELT syntax (e.g. "1d", "12h"). */
+  /** Timespan window, GDELT syntax (e.g. "1d", "12h", "3months"). Ignored if startDatetime/endDatetime are set. */
   timespan?: string;
+  /** Explicit range start, GDELT "YYYYMMDDHHMMSS" (use `toGdeltDatetime`). Mutually exclusive with `timespan`. */
+  startDatetime?: string;
+  /** Explicit range end, GDELT "YYYYMMDDHHMMSS" (use `toGdeltDatetime`). Required if `startDatetime` is set. */
+  endDatetime?: string;
+}
+
+/**
+ * Build the DOC 2.0 query params for a fetch — pure and network-free so the
+ * widened-default / explicit-range behavior is directly testable.
+ */
+export function gdeltQueryParams(topic: TopicDefinition, opts: GdeltOptions = {}): URLSearchParams {
+  const maxRecords = opts.maxRecords ?? 75;
+  const params = new URLSearchParams({
+    query: buildTopicQuery(topic),
+    mode: "ArtList",
+    format: "json",
+    maxrecords: String(maxRecords),
+    sort: "datedesc",
+  });
+  // GDELT's DOC API treats timespan and an explicit start/end range as
+  // mutually exclusive; an explicit range wins when both are supplied.
+  if (opts.startDatetime && opts.endDatetime) {
+    params.set("startdatetime", opts.startDatetime);
+    params.set("enddatetime", opts.endDatetime);
+  } else {
+    params.set("timespan", opts.timespan ?? DEFAULT_TIMESPAN);
+  }
+  return params;
 }
 
 export class GdeltAdapter implements SourcePort {
   readonly name = "gdelt" as const;
-  readonly #maxRecords: number;
-  readonly #timespan: string;
+  readonly #opts: GdeltOptions;
 
   constructor(opts: GdeltOptions = {}) {
-    this.#maxRecords = opts.maxRecords ?? 75;
-    this.#timespan = opts.timespan ?? "1d";
+    this.#opts = opts;
   }
 
   async *fetch(topic: TopicDefinition): AsyncIterable<Item> {
-    const params = new URLSearchParams({
-      query: buildTopicQuery(topic),
-      mode: "ArtList",
-      format: "json",
-      maxrecords: String(this.#maxRecords),
-      timespan: this.#timespan,
-      sort: "datedesc",
-    });
+    const params = gdeltQueryParams(topic, this.#opts);
     const res = await fetch(`${GDELT_DOC_API}?${params}`, {
       headers: { "user-agent": "parallax-fix/0.1 (research)" },
     });

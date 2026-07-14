@@ -1,10 +1,16 @@
 import { assert, assertEquals } from "@std/assert";
-import { type GdeltArticle, normalizeGdeltArticle } from "../src/ingestion/gdelt.ts";
+import {
+  type GdeltArticle,
+  gdeltQueryParams,
+  normalizeGdeltArticle,
+  toGdeltDatetime,
+} from "../src/ingestion/gdelt.ts";
 import {
   normalizeRedditFeedEntry,
   normalizeRedditPost,
   type RedditFeedEntry,
   type RedditPostData,
+  redditSearchParams,
   redditSearchQuery,
 } from "../src/ingestion/reddit.ts";
 import { normalizeRssEntry } from "../src/ingestion/rss.ts";
@@ -25,6 +31,45 @@ Deno.test("GDELT: maps an article, parses seendate, requires a url", () => {
   assertEquals(item.text, "Riverside council faces recall push");
   assertEquals(item.created_at.toISOString(), "2026-06-29T12:00:00.000Z");
   assertEquals(normalizeGdeltArticle({ title: "no url" }), null);
+});
+
+Deno.test("GDELT: widened default timespan (not the old recency-only '1d')", () => {
+  const topic = adHocTopic(["Tilian Pearson"]);
+  const params = gdeltQueryParams(topic);
+  assertEquals(params.get("timespan"), "3months");
+  assert(!params.has("startdatetime") && !params.has("enddatetime"));
+});
+
+Deno.test("GDELT: an explicit start+end range wins over timespan (historical mode)", () => {
+  const topic = adHocTopic(["Tilian Pearson"]);
+  const params = gdeltQueryParams(topic, {
+    timespan: "1d", // should be ignored once a range is given
+    startDatetime: toGdeltDatetime(new Date("2018-01-01T00:00:00Z")),
+    endDatetime: toGdeltDatetime(new Date("2018-12-31T00:00:00Z")),
+  });
+  assertEquals(params.get("startdatetime"), "20180101000000");
+  assertEquals(params.get("enddatetime"), "20181231000000");
+  assert(!params.has("timespan"));
+});
+
+Deno.test("Reddit search params: defaults to sort=new with no time filter", () => {
+  const topic = adHocTopic(["recall"]);
+  const params = redditSearchParams(topic, { limit: 50, sort: "new", time: null });
+  assertEquals(params.get("sort"), "new");
+  assert(!params.has("t"));
+});
+
+Deno.test("Reddit search params: historical mode sends sort=relevance&t=all", () => {
+  const topic = adHocTopic(["Tilian Pearson"]);
+  const params = redditSearchParams(topic, {
+    limit: 50,
+    sort: "relevance",
+    time: "all",
+    type: "link",
+  });
+  assertEquals(params.get("sort"), "relevance");
+  assertEquals(params.get("t"), "all");
+  assertEquals(params.get("type"), "link");
 });
 
 Deno.test("Reddit: maps a post, builds permalink, captures engagement", () => {
