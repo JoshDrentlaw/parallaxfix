@@ -1,5 +1,10 @@
 import { assert, assertEquals } from "@std/assert";
 import {
+  bskySearchParams,
+  type BskySearchPost,
+  normalizeSearchPost,
+} from "../src/ingestion/bluesky.ts";
+import {
   type GdeltArticle,
   gdeltQueryParams,
   normalizeGdeltArticle,
@@ -14,6 +19,7 @@ import {
   redditSearchQuery,
 } from "../src/ingestion/reddit.ts";
 import { normalizeRssEntry } from "../src/ingestion/rss.ts";
+import { stableId } from "../src/ingestion/normalize.ts";
 import { adHocTopic } from "../src/ingestion/topic.ts";
 
 Deno.test("GDELT: maps an article, parses seendate, requires a url", () => {
@@ -156,4 +162,87 @@ Deno.test("RSS: maps an entry, strips HTML, uses feed title as author, requires 
   assert(item.text.includes("The hearing is") && item.text.includes("Thursday"));
   assert(!item.text.includes("<") && !item.text.includes(">"), "HTML stripped");
   assertEquals(normalizeRssEntry({ title: "no link" }, "Outlet"), null);
+});
+
+Deno.test("Bluesky search: maps a searchPosts result, prefers handle, captures engagement", () => {
+  const p: BskySearchPost = {
+    uri: "at://did:plc:abc123/app.bsky.feed.post/xyz789",
+    cid: "bafy...",
+    author: { did: "did:plc:abc123", handle: "someuser.bsky.social" },
+    record: {
+      text: "The Tilian Pearson accusations, revisited",
+      createdAt: "2018-06-15T10:00:00Z",
+    },
+    indexedAt: "2018-06-15T10:05:00Z",
+    likeCount: 12,
+    repostCount: 3,
+    replyCount: 1,
+    quoteCount: 0,
+  };
+  const item = normalizeSearchPost(p)!;
+  assertEquals(item.source, "bluesky");
+  assertEquals(item.source_id, "did:plc:abc123/xyz789");
+  assertEquals(item.author, "someuser.bsky.social");
+  assertEquals(item.url, "https://bsky.app/profile/did:plc:abc123/post/xyz789");
+  assertEquals(item.text, "The Tilian Pearson accusations, revisited");
+  assertEquals(item.created_at.toISOString(), "2018-06-15T10:00:00.000Z");
+  assertEquals(item.engagement, { likes: 12, reposts: 3, replies: 1, quotes: 0 });
+  assertEquals(normalizeSearchPost({ uri: "not-an-at-uri" }), null);
+});
+
+Deno.test("Bluesky search: same (did, rkey) as Jetstream would produce → dedupes to one row", () => {
+  // Jetstream's stableId key is `${did}/${rkey}`; searchPosts must match it so
+  // the same real-world post reached via either adapter lands on one row.
+  const p: BskySearchPost = {
+    uri: "at://did:plc:abc123/app.bsky.feed.post/xyz789",
+    author: { did: "did:plc:abc123" },
+    record: { text: "hello", createdAt: "2018-06-15T10:00:00Z" },
+  };
+  const item = normalizeSearchPost(p)!;
+  assertEquals(item.id, stableId("bluesky", "did:plc:abc123/xyz789"));
+});
+
+Deno.test("Bluesky search: falls back to indexedAt, then now, when createdAt is missing/bad", () => {
+  const p: BskySearchPost = {
+    uri: "at://did:plc:abc123/app.bsky.feed.post/xyz789",
+    author: { did: "did:plc:abc123" },
+    record: { text: "hello" },
+    indexedAt: "2018-06-15T10:05:00Z",
+  };
+  const item = normalizeSearchPost(p)!;
+  assertEquals(item.created_at.toISOString(), "2018-06-15T10:05:00.000Z");
+});
+
+Deno.test("Bluesky search: captures reply parent as provenance", () => {
+  const p: BskySearchPost = {
+    uri: "at://did:plc:abc123/app.bsky.feed.post/xyz789",
+    author: { did: "did:plc:abc123" },
+    record: {
+      text: "reply",
+      createdAt: "2018-06-15T10:00:00Z",
+      reply: { parent: { uri: "at://did:plc:parent/app.bsky.feed.post/root1" } },
+    },
+  };
+  const item = normalizeSearchPost(p)!;
+  assertEquals(item.parent_ref, "at://did:plc:parent/app.bsky.feed.post/root1");
+});
+
+Deno.test("Bluesky search params: defaults to sort=latest, no date bounds", () => {
+  const topic = adHocTopic(["Tilian Pearson"]);
+  const params = bskySearchParams(topic, { sort: "latest", limit: 100 });
+  assertEquals(params.get("sort"), "latest");
+  assertEquals(params.get("limit"), "100");
+  assert(!params.has("since") && !params.has("until"));
+});
+
+Deno.test("Bluesky search params: since/until serialize as ISO datetimes (historical mode)", () => {
+  const topic = adHocTopic(["Tilian Pearson"]);
+  const params = bskySearchParams(topic, {
+    sort: "latest",
+    limit: 100,
+    since: new Date("2018-01-01T00:00:00Z"),
+    until: new Date("2018-12-31T00:00:00Z"),
+  });
+  assertEquals(params.get("since"), "2018-01-01T00:00:00.000Z");
+  assertEquals(params.get("until"), "2018-12-31T00:00:00.000Z");
 });

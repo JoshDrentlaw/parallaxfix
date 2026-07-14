@@ -16,6 +16,7 @@ import { LocalEmbedder } from "./corpus/embed.ts";
 import { GdeltAdapter, toGdeltDatetime } from "./ingestion/gdelt.ts";
 import { RedditAdapter } from "./ingestion/reddit.ts";
 import { RssAdapter } from "./ingestion/rss.ts";
+import { BlueskySearchAdapter } from "./ingestion/bluesky.ts";
 import { clusterItems } from "./analysis/cluster.ts";
 import { extractClaims } from "./analysis/claims.ts";
 import { summarizeBlindSpotSignals } from "./analysis/references.ts";
@@ -36,18 +37,22 @@ export interface GatherOptions {
   /**
    * Explicit historical window. Setting either bound switches GDELT to an
    * explicit startdatetime/enddatetime range (instead of its default rolling
-   * timespan) and Reddit to `sort=relevance&t=all` (instead of `sort=new`) —
-   * a recency-biased default can't reach a multi-year-old story by
-   * construction (see historical-research-plan.md).
+   * timespan), Reddit to `sort=relevance&t=all` (instead of `sort=new`), and
+   * adds Bluesky's `searchPosts` history search (`BlueskySearchAdapter`)
+   * alongside the pull-based sources — a recency-biased default can't reach a
+   * multi-year-old story by construction (see historical-research-plan.md).
+   * Bluesky's *live* keystone (Jetstream, via `listen`/`ingest`) is unaffected;
+   * this only adds the historical-search mode on top.
    */
   since?: Date;
   until?: Date;
 }
 
 /**
- * Poll the pull-based sources (Reddit/GDELT/RSS), store what they return, and
- * assemble the CoverageReport (P1) — including the blind-spot reference signal.
- * An unreachable source is a reported gap, never a crash.
+ * Poll the pull-based sources (Reddit/GDELT/RSS, + Bluesky search in
+ * historical mode), store what they return, and assemble the CoverageReport
+ * (P1) — including the blind-spot reference signal. An unreachable source is
+ * a reported gap, never a crash.
  */
 export async function gatherSources(
   topic: TopicDefinition,
@@ -70,10 +75,11 @@ export async function gatherSources(
     new RssAdapter({ feeds: topic.feeds }),
   ];
   if (historical) {
+    adapters.push(new BlueskySearchAdapter({ since: opts.since, until: opts.until }));
     progress(
       `historical mode: GDELT ${toGdeltDatetime(opts.since ?? new Date(0))}–${
         toGdeltDatetime(opts.until ?? new Date())
-      }, Reddit sort=relevance&t=all`,
+      }, Reddit sort=relevance&t=all, Bluesky searchPosts`,
     );
   }
 
