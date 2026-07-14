@@ -65,22 +65,35 @@ Headed for a multi-user hosted deployment (droplet, signups), so we overrode the
 - Use the Batch API (50% off) + prompt caching (90% off cached input) on the extraction sweep.
 - The synthesis prompt must not editorialize or conclude. Description + evidence only.
 
+## Branches / environments
+
+Two long-lived branches, two different deploy targets:
+
+- **`development`** — the GitHub default branch. Deploys automatically to **nucklehead**
+  (`self-hosted` runner `nucklehead-parallax`, `.github/workflows/ci.yml`'s `deploy` job) on every
+  push. Nucklehead is home-server/Tailscale-only infra — a development environment, not a
+  prod mirror (see `/srv/CLAUDE.md`). This is where day-to-day work lands.
+- **`main`** — reserved for the future production Droplet (`parallaxfix.com`), once that exists.
+  No runner is registered for it yet, so pushes to `main` only run CI checks, never a deploy.
+
 ## Git / merge workflow
 
 We merge PRs with **Rebase and Merge** (not squash, not a merge commit). Implications to work with,
 not against:
 
-- **Commits get new hashes on merge.** Rebase replays your branch commits onto `main`, so the SHAs
-  that land on `main` are _new_ — they are not the SHAs from your feature branch. Don't reference a
-  pre-merge hash as if it still exists on `main`.
+- **Commits get new hashes on merge.** Rebase replays your branch commits onto the target branch,
+  so the SHAs that land there are _new_ — they are not the SHAs from your feature branch. Don't
+  reference a pre-merge hash as if it still exists on the target.
 - **A merged branch is dead — never keep working on it.** After the PR merges, your local feature
-  branch has diverged from `main` (same changes, different hashes). Continuing on it produces a
-  messy re-merge/conflict.
-- **Start each new unit of work from fresh `main`:** `git checkout main && git pull origin main`,
-  then branch (`git checkout -b claude/<next-thing>`). One branch per PR.
+  branch has diverged from the target (same changes, different hashes). Continuing on it produces
+  a messy re-merge/conflict.
+- **Start each new unit of work from fresh `development`:** `git checkout development && git pull
+  origin development`, then branch (`git checkout -b claude/<next-thing>`). One branch per PR
+  targeting `development` (the default branch) unless the work is specifically a production-only
+  concern for `main`.
 - **Delete the old branch after merge** (locally and on the remote) so it can't be reused by
   mistake.
-- **No force-pushing `main`.** Keep history linear by branching off updated `main`, not by rewriting
-  shared history.
-- Keep commits self-contained and well-described — rebase preserves each one on `main`, so every
-  message stands on its own in the permanent history.
+- **No force-pushing `development` or `main`.** Keep history linear by branching off the updated
+  target, not by rewriting shared history.
+- Keep commits self-contained and well-described — rebase preserves each one on the target branch,
+  so every message stands on its own in the permanent history.
