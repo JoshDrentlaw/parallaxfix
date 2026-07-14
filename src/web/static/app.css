@@ -448,6 +448,135 @@ code {
   font-style: italic;
 }
 
+/* ── topic manager ────────────────────────────────────────────────────── */
+
+#topic-manager summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+  list-style: none;
+}
+#topic-manager summary::-webkit-details-marker {
+  display: none;
+}
+#topic-manager summary::before {
+  content: "▸ ";
+  display: inline-block;
+}
+#topic-manager[open] summary::before {
+  content: "▾ ";
+}
+#topic-manager[open] summary {
+  margin-bottom: 0.9rem;
+}
+
+.tm-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.9rem;
+}
+.tm-tab {
+  background: transparent;
+}
+.tm-tab.active {
+  background: var(--surface-2);
+  border-color: var(--accent);
+}
+
+.tm-panel .row {
+  margin-bottom: 0.7rem;
+  align-items: end;
+}
+.tm-subtitle {
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 1rem 0 0.5rem;
+}
+
+button.danger {
+  border-color: var(--bad);
+  color: var(--bad);
+  background: transparent;
+}
+button.danger:hover {
+  background: var(--bad);
+  color: #fff;
+}
+
+.tm-status {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.tm-status.ok {
+  color: var(--ok);
+}
+.tm-status.bad {
+  color: var(--bad);
+}
+
+.feed-list {
+  list-style: none;
+  margin: 0 0 0.6rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.feed-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.85rem;
+}
+.feed-list .feed-url {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.feed-list button {
+  padding: 0.1rem 0.55rem;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+.feed-list .empty {
+  padding: 0.2rem 0;
+}
+
+.feed-check {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+}
+.feed-check.ok {
+  border-color: var(--ok);
+}
+.feed-check.bad {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+.feed-check .fc-title {
+  font-weight: 600;
+  margin-bottom: 0.3rem;
+}
+.feed-check .fc-preview {
+  color: var(--muted);
+  margin: 0.3rem 0 0;
+  padding-left: 1.1rem;
+}
+.feed-check .fc-preview li {
+  margin: 0.15rem 0;
+}
+
 footer {
   border-top: 1px solid var(--border);
   color: var(--muted);

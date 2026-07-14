@@ -69,6 +69,104 @@
         </p>
       </section>
 
+      <details id="topic-manager" class="card">
+        <summary>Manage topics &amp; RSS feeds</summary>
+        <div class="tm-body">
+          <div class="tm-tabs">
+            <button type="button" class="tm-tab active" data-tab="edit">Edit selected topic</button>
+            <button type="button" class="tm-tab" data-tab="new">New topic</button>
+          </div>
+
+          <section id="tm-edit" class="tm-panel">
+            <p id="tm-edit-hint" class="hint">Select a saved topic above to edit it.</p>
+            <div id="tm-edit-form" hidden>
+              <div class="row">
+                <label class="grow">Keywords (comma-separated)
+                  <input id="tm-edit-keywords" autocomplete="off">
+                </label>
+                <label class="grow">Entities (comma-separated)
+                  <input id="tm-edit-entities" autocomplete="off">
+                </label>
+              </div>
+              <div class="row">
+                <label class="grow">Description
+                  <input id="tm-edit-description" autocomplete="off">
+                </label>
+                <label class="grow">Exclude (comma-separated)
+                  <input id="tm-edit-exclude" autocomplete="off">
+                </label>
+              </div>
+              <div class="row actions">
+                <button id="tm-edit-save" type="button" class="primary">Save changes</button>
+                <button id="tm-edit-delete" type="button" class="danger">Delete topic</button>
+                <span id="tm-edit-status" class="tm-status"></span>
+              </div>
+
+              <h3 class="tm-subtitle">RSS feeds</h3>
+              <ul id="tm-edit-feed-list" class="feed-list"></ul>
+              <div class="row">
+                <label class="grow">Add feed URL
+                  <input
+                    id="tm-edit-feed-url"
+                    placeholder="https://example.com/feed.xml"
+                    autocomplete="off"
+                  >
+                </label>
+                <button id="tm-edit-feed-add" type="button">Validate &amp; add</button>
+              </div>
+              <div id="tm-edit-feed-result"></div>
+            </div>
+          </section>
+
+          <section id="tm-new" class="tm-panel" hidden>
+            <div class="row">
+              <label class="grow">Topic name
+                <input
+                  id="tm-new-id"
+                  placeholder="Riverside City Council Recall"
+                  autocomplete="off"
+                >
+              </label>
+            </div>
+            <div class="row">
+              <label class="grow">Keywords (comma-separated)
+                <input id="tm-new-keywords" autocomplete="off">
+              </label>
+              <label class="grow">Entities (comma-separated)
+                <input id="tm-new-entities" autocomplete="off">
+              </label>
+            </div>
+            <div class="row">
+              <label class="grow">Description
+                <input id="tm-new-description" autocomplete="off">
+              </label>
+              <label class="grow">Exclude (comma-separated)
+                <input id="tm-new-exclude" autocomplete="off">
+              </label>
+            </div>
+
+            <h3 class="tm-subtitle">RSS feeds (optional)</h3>
+            <ul id="tm-new-feed-list" class="feed-list"></ul>
+            <div class="row">
+              <label class="grow">Add feed URL
+                <input
+                  id="tm-new-feed-url"
+                  placeholder="https://example.com/feed.xml"
+                  autocomplete="off"
+                >
+              </label>
+              <button id="tm-new-feed-add" type="button">Validate &amp; add</button>
+            </div>
+            <div id="tm-new-feed-result"></div>
+
+            <div class="row actions">
+              <button id="tm-new-create" type="button" class="primary">Create topic</button>
+              <span id="tm-new-status" class="tm-status"></span>
+            </div>
+          </section>
+        </div>
+      </details>
+
       <section id="error" class="card error" hidden></section>
       <div id="results"></div>
     </main>

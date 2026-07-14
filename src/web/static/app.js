@@ -84,14 +84,16 @@ async function loadStatus() {
   } catch { /* status is cosmetic; the actions surface real errors */ }
 }
 
-async function loadTopics() {
+/** (Re)populate the saved-topic dropdown. Pass an id to select afterward (falls back to ad hoc). */
+async function loadTopics(selectId) {
+  const select = $("#topic-select");
+  const prior = selectId !== undefined ? selectId : select.value;
+  select.replaceChildren(el("option", { value: "", text: "— ad hoc —" }));
   try {
     const topics = await (await fetch("api/topics")).json();
-    const select = $("#topic-select");
-    for (const t of topics) {
-      select.append(el("option", { value: t.id, text: t.id }));
-    }
+    for (const t of topics) select.append(el("option", { value: t.id, text: t.id }));
   } catch { /* no saved topics is fine */ }
+  select.value = [...select.options].some((o) => o.value === prior) ? prior : "";
 }
 
 // ── renderers (coverage first, always — P1) ────────────────────────────────
@@ -294,16 +296,20 @@ function requestBody() {
   return base;
 }
 
-async function post(path, body) {
-  const res = await fetch(path, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const json = await res.json();
+async function request(method, path, body) {
+  const opts = { method };
+  if (body !== undefined) {
+    opts.headers = { "content-type": "application/json" };
+    opts.body = JSON.stringify(body);
+  }
+  const res = await fetch(path, opts);
+  const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json.error || `${res.status} ${res.statusText}`);
   return json;
 }
+const post = (path, body) => request("POST", path, body);
+const put = (path, body) => request("PUT", path, body);
+const del = (path) => request("DELETE", path);
 
 function setBusy(msg) {
   const busy = Boolean(msg);
@@ -357,11 +363,244 @@ async function runBrief() {
   }
 }
 
+// ── topic manager (create/edit topics, add/remove + verify RSS feeds) ──────
+
+let newTopicFeeds = [];
+
+function feedListItem(url, onRemove) {
+  const li = el("li", {}, el("span", { class: "feed-url", text: url }));
+  if (onRemove) {
+    const btn = el("button", { type: "button", text: "×", title: `remove ${url}` });
+    btn.addEventListener("click", () => onRemove(url));
+    li.append(btn);
+  }
+  return li;
+}
+
+function renderFeedList(ul, feeds, onRemove) {
+  if (!feeds || feeds.length === 0) {
+    ul.replaceChildren(el("li", { class: "empty", text: "no feeds configured" }));
+    return;
+  }
+  ul.replaceChildren(...feeds.map((f) => feedListItem(f, onRemove)));
+}
+
+/** Render a feed-validation result: title + entry count + preview, or the failure reason. */
+function renderFeedCheck(container, result) {
+  if (!result) {
+    container.replaceChildren();
+    return;
+  }
+  const box = el("div", { class: `feed-check ${result.ok ? "ok" : "bad"}` });
+  if (result.ok) {
+    const n = result.entryCount;
+    box.append(
+      el("div", {
+        class: "fc-title",
+        text: `✓ ${result.title} — ${n} entr${n === 1 ? "y" : "ies"}`,
+      }),
+    );
+    if (result.preview?.length) {
+      const list = el("ul", { class: "fc-preview" });
+      for (const p of result.preview) {
+        list.append(
+          el("li", { text: p.title + (p.published ? ` (${fmtTime(p.published)})` : "") }),
+        );
+      }
+      box.append(list);
+    }
+  } else {
+    box.append(el("div", { class: "fc-title", text: `✗ ${result.reason}` }));
+  }
+  container.replaceChildren(box);
+}
+
+function setStatus(node, msg, ok) {
+  node.textContent = msg;
+  node.className = `tm-status${ok === undefined ? "" : ok ? " ok" : " bad"}`;
+}
+
+function switchTab(tab) {
+  for (const btn of document.querySelectorAll(".tm-tab")) {
+    btn.classList.toggle("active", btn.dataset.tab === tab);
+  }
+  $("#tm-edit").hidden = tab !== "edit";
+  $("#tm-new").hidden = tab !== "new";
+}
+
+// -- "new topic" panel: feeds are staged client-side, validated as added,
+//    and only sent to the server once "Create topic" is submitted. --
+
+function renderNewFeedList() {
+  renderFeedList($("#tm-new-feed-list"), newTopicFeeds, (url) => {
+    newTopicFeeds = newTopicFeeds.filter((f) => f !== url);
+    renderNewFeedList();
+  });
+}
+
+async function addNewTopicFeed() {
+  const input = $("#tm-new-feed-url");
+  const url = input.value.trim();
+  if (!url) return;
+  const result = await post("api/feeds/validate", { url }).catch((err) => ({
+    ok: false,
+    reason: err.message,
+  }));
+  renderFeedCheck($("#tm-new-feed-result"), result);
+  if (result.ok && !newTopicFeeds.includes(url)) {
+    newTopicFeeds.push(url);
+    renderNewFeedList();
+    input.value = "";
+  }
+}
+
+async function createNewTopic() {
+  const status = $("#tm-new-status");
+  const id = $("#tm-new-id").value.trim();
+  if (!id) {
+    setStatus(status, "a topic name is required", false);
+    return;
+  }
+  try {
+    const created = await post("api/topics", {
+      id,
+      keywords: $("#tm-new-keywords").value,
+      entities: $("#tm-new-entities").value,
+      description: $("#tm-new-description").value,
+      exclude: $("#tm-new-exclude").value,
+      feeds: newTopicFeeds,
+    });
+    setStatus(status, `created "${created.id}"`, true);
+    for (
+      const fieldId of [
+        "tm-new-id",
+        "tm-new-keywords",
+        "tm-new-entities",
+        "tm-new-description",
+        "tm-new-exclude",
+      ]
+    ) {
+      $(`#${fieldId}`).value = "";
+    }
+    newTopicFeeds = [];
+    renderNewFeedList();
+    renderFeedCheck($("#tm-new-feed-result"), null);
+    await loadTopics(created.id);
+    await loadTopicForEdit(created.id);
+    switchTab("edit");
+  } catch (err) {
+    setStatus(status, err.message, false);
+  }
+}
+
+// -- "edit topic" panel: reads/writes the topic currently selected in the
+//    main controls' dropdown; feed add/remove persist immediately. --
+
+async function loadTopicForEdit(id) {
+  const hint = $("#tm-edit-hint");
+  const form = $("#tm-edit-form");
+  if (!id) {
+    form.hidden = true;
+    hint.hidden = false;
+    hint.textContent = "Select a saved topic above to edit it.";
+    return;
+  }
+  try {
+    const topic = await (await fetch(`api/topics/${encodeURIComponent(id)}`)).json();
+    $("#tm-edit-keywords").value = topic.keywords.join(", ");
+    $("#tm-edit-entities").value = topic.entities.join(", ");
+    $("#tm-edit-description").value = topic.description;
+    $("#tm-edit-exclude").value = topic.exclude.join(", ");
+    renderFeedList($("#tm-edit-feed-list"), topic.feeds, (url) => removeEditFeed(id, url));
+    renderFeedCheck($("#tm-edit-feed-result"), null);
+    setStatus($("#tm-edit-status"), "");
+    hint.hidden = true;
+    form.hidden = false;
+  } catch {
+    form.hidden = true;
+    hint.hidden = false;
+    hint.textContent = `Could not load "${id}".`;
+  }
+}
+
+async function saveEditedTopic() {
+  const id = $("#topic-select").value;
+  if (!id) return;
+  const status = $("#tm-edit-status");
+  try {
+    await put(`api/topics/${encodeURIComponent(id)}`, {
+      keywords: $("#tm-edit-keywords").value,
+      entities: $("#tm-edit-entities").value,
+      description: $("#tm-edit-description").value,
+      exclude: $("#tm-edit-exclude").value,
+    });
+    setStatus(status, "saved", true);
+  } catch (err) {
+    setStatus(status, err.message, false);
+  }
+}
+
+async function deleteEditedTopic() {
+  const id = $("#topic-select").value;
+  if (!id) return;
+  if (!confirm(`Delete topic "${id}"? This cannot be undone.`)) return;
+  try {
+    await del(`api/topics/${encodeURIComponent(id)}`);
+    await loadTopics("");
+    await loadTopicForEdit("");
+  } catch (err) {
+    setStatus($("#tm-edit-status"), err.message, false);
+  }
+}
+
+async function addEditFeed() {
+  const id = $("#topic-select").value;
+  if (!id) return;
+  const input = $("#tm-edit-feed-url");
+  const url = input.value.trim();
+  if (!url) return;
+  const result = await post(`api/topics/${encodeURIComponent(id)}/feeds`, { url }).catch((err) => ({
+    ok: false,
+    reason: err.message,
+  }));
+  renderFeedCheck($("#tm-edit-feed-result"), result);
+  if (result.ok) {
+    renderFeedList($("#tm-edit-feed-list"), result.topic.feeds, (u) => removeEditFeed(id, u));
+    input.value = "";
+  }
+}
+
+async function removeEditFeed(id, url) {
+  try {
+    const topic = await del(
+      `api/topics/${encodeURIComponent(id)}/feeds?url=${encodeURIComponent(url)}`,
+    );
+    renderFeedList($("#tm-edit-feed-list"), topic.feeds, (u) => removeEditFeed(id, u));
+  } catch (err) {
+    setStatus($("#tm-edit-status"), err.message, false);
+  }
+}
+
+function initTopicManager() {
+  for (const btn of document.querySelectorAll(".tm-tab")) {
+    btn.addEventListener("click", () => switchTab(btn.dataset.tab));
+  }
+  $("#topic-select").addEventListener("change", (e) => loadTopicForEdit(e.target.value));
+  $("#tm-new-feed-add").addEventListener("click", addNewTopicFeed);
+  $("#tm-new-create").addEventListener("click", createNewTopic);
+  $("#tm-edit-feed-add").addEventListener("click", addEditFeed);
+  $("#tm-edit-save").addEventListener("click", saveEditedTopic);
+  $("#tm-edit-delete").addEventListener("click", deleteEditedTopic);
+  renderNewFeedList();
+  loadTopicForEdit($("#topic-select").value);
+}
+
 // ── boot ───────────────────────────────────────────────────────────────────
 
 initTheme();
 loadStatus();
 loadTopics();
+initTopicManager();
 $("#gather-btn").addEventListener("click", runGather);
 $("#brief-btn").addEventListener("click", runBrief);
 $("#keywords").addEventListener("keydown", (e) => {

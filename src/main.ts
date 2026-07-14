@@ -409,7 +409,14 @@ async function match(args: Args): Promise<number> {
  * so it's scriptable. Each field prefers its flag, then an interactive prompt.
  */
 async function topicNew(args: Args): Promise<number> {
-  const { slugifyTopicId } = await import("./ingestion/topic.ts");
+  const {
+    slugifyTopicId,
+    parseCommaList,
+    validateTopicDraft,
+    topicExists,
+    saveTopic,
+    topicFilePath,
+  } = await import("./ingestion/topic.ts");
 
   const interactive = Deno.stdin.isTerminal();
   const flag = (k: string): string | undefined =>
@@ -417,7 +424,6 @@ async function topicNew(args: Args): Promise<number> {
   const ask = (label: string): string =>
     interactive ? (globalThis.prompt(`${label}:`) ?? "").trim() : "";
   const field = (k: string, label: string): string => flag(k) ?? ask(label);
-  const list = (s: string): string[] => s.split(",").map((x) => x.trim()).filter(Boolean);
 
   if (interactive) console.log("\nNew topic — answer a few prompts (Ctrl+C to cancel).");
 
@@ -430,34 +436,28 @@ async function topicNew(args: Args): Promise<number> {
 
   const topic: TopicDefinition = {
     id,
-    keywords: list(field("keywords", "keywords (comma-separated)")),
-    entities: list(field("entities", "entities (names/orgs/places to disambiguate)")),
+    keywords: parseCommaList(field("keywords", "keywords (comma-separated)")),
+    entities: parseCommaList(field("entities", "entities (names/orgs/places to disambiguate)")),
     description: field("description", "description (natural language — drives semantic matching)"),
-    exclude: list(field("exclude", "exclude (negative keywords)")),
+    exclude: parseCommaList(field("exclude", "exclude (negative keywords)")),
   };
 
-  if (topic.keywords.length === 0 && topic.description === "") {
+  const draftError = validateTopicDraft(topic);
+  if (draftError) {
     console.error(
-      "\nRefusing to write an empty topic (no keywords and no description).\n" +
+      `\nRefusing to write an empty topic (${draftError}).\n` +
         "  Interactive: run in a terminal. Scripted: pass --keywords and/or --description.",
     );
     return 2;
   }
 
-  const dir = "config/topics";
-  await Deno.mkdir(dir, { recursive: true });
-  const path = `${dir}/${id}.json`;
-  try {
-    await Deno.stat(path);
-    if (!globalThis.confirm(`${path} already exists — overwrite?`)) {
-      console.log("Aborted.");
-      return 1;
-    }
-  } catch {
-    // doesn't exist yet — fine
+  const path = topicFilePath(id);
+  if (await topicExists(id) && !globalThis.confirm(`${path} already exists — overwrite?`)) {
+    console.log("Aborted.");
+    return 1;
   }
 
-  await Deno.writeTextFile(path, `${JSON.stringify(topic, null, 2)}\n`);
+  await saveTopic(topic);
   console.log(`\nWrote ${path}`);
   console.log(`Next: deno task ingest --topic ${path} --limit 50`);
   console.log(`Then: deno task match  --topic ${path} -k 20 --explain`);
