@@ -117,3 +117,39 @@ Deno.test({
     }
   },
 });
+
+Deno.test({
+  name: "PgCorpus: a similarity floor drops weak matches instead of presenting them as real (P1)",
+  ignore: !DATABASE_URL,
+  async fn() {
+    const { PgCorpus } = await import("../src/corpus/store.ts");
+    const corpus = new PgCorpus({ databaseUrl: DATABASE_URL!, embedder: new FakeEmbedder() });
+    try {
+      await corpus.init();
+      await corpus.clear();
+
+      const relevant = item("a", "Wildfire near Riverside forces evacuations");
+      const offtopic = item("c", "Quarterly earnings report beats expectations");
+      await corpus.append([relevant, offtopic]);
+
+      const topic = adHocTopic(["wildfire", "riverside"]);
+      topic.description = "wildfire evacuations near riverside";
+
+      // A permissive floor still returns the off-topic nearest-neighbor.
+      const loose = await corpus.retrieve(topic, 10, { minSimilarity: -1 });
+      assert(loose.some((r) => r.item.id === "c"), "loose floor still surfaces the weak match");
+
+      // A strict floor drops it — "no strong match" beats a false one (P1).
+      const strict = await corpus.retrieve(topic, 10, { minSimilarity: 0.99 });
+      assert(!strict.some((r) => r.item.id === "c"), "strict floor drops the weak match");
+
+      // retrieveForAnalysis carries per-item similarity (relevance threading) and
+      // applies the same floor.
+      const forAnalysis = await corpus.retrieveForAnalysis(topic, 10, { minSimilarity: 0.99 });
+      assert(!forAnalysis.some((r) => r.item.id === "c"));
+      assert(forAnalysis.every((r) => typeof r.similarity === "number"));
+    } finally {
+      await corpus.close();
+    }
+  },
+});

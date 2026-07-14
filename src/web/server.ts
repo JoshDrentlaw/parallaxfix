@@ -17,8 +17,8 @@ import { DECLARED_BLIND_SPOTS } from "../briefing/coverage.ts";
 /** Injectable seams so tests (and demos) can run the server without Postgres. */
 export interface WebDeps {
   databaseUrl?: () => string | undefined;
-  gather?: (topic: TopicDefinition) => Promise<CoverageReport>;
-  brief?: (topic: TopicDefinition, k: number) => Promise<Briefing>;
+  gather?: (topic: TopicDefinition, since?: Date, until?: Date) => Promise<CoverageReport>;
+  brief?: (topic: TopicDefinition, k: number, minSimilarity?: number) => Promise<Briefing>;
 }
 
 const STATIC_DIR = new URL("./static/", import.meta.url);
@@ -104,19 +104,20 @@ export function createHandler(deps: WebDeps = {}): (req: Request) => Promise<Res
     );
   };
 
-  const gather = deps.gather ?? (async (topic: TopicDefinition) => {
+  const gather = deps.gather ?? (async (topic: TopicDefinition, since?: Date, until?: Date) => {
     const db = requireDb();
     if (db instanceof Response) throw db;
     const { gatherSources } = await import("../pipeline.ts");
-    return await gatherSources(topic, { databaseUrl: db });
+    return await gatherSources(topic, { databaseUrl: db }, { since, until });
   });
 
-  const brief = deps.brief ?? (async (topic: TopicDefinition, k: number) => {
-    const db = requireDb();
-    if (db instanceof Response) throw db;
-    const { briefTopic } = await import("../pipeline.ts");
-    return await briefTopic(topic, { databaseUrl: db }, { k });
-  });
+  const brief = deps.brief ??
+    (async (topic: TopicDefinition, k: number, minSimilarity?: number) => {
+      const db = requireDb();
+      if (db instanceof Response) throw db;
+      const { briefTopic } = await import("../pipeline.ts");
+      return await briefTopic(topic, { databaseUrl: db }, { k, minSimilarity });
+    });
 
   return async (req: Request): Promise<Response> => {
     const { pathname } = new URL(req.url);
@@ -146,7 +147,14 @@ export function createHandler(deps: WebDeps = {}): (req: Request) => Promise<Res
       }
 
       if (req.method === "POST" && (pathname === "/api/gather" || pathname === "/api/brief")) {
-        let body: { topicId?: unknown; keywords?: unknown; k?: unknown };
+        let body: {
+          topicId?: unknown;
+          keywords?: unknown;
+          k?: unknown;
+          minSimilarity?: unknown;
+          since?: unknown;
+          until?: unknown;
+        };
         try {
           body = await req.json();
         } catch {
@@ -161,10 +169,19 @@ export function createHandler(deps: WebDeps = {}): (req: Request) => Promise<Res
         if (!topic) return errorJson(400, "provide topicId (saved) or keywords (comma-separated)");
 
         if (pathname === "/api/gather") {
-          return json({ coverage: await gather(topic) });
+          const since = typeof body.since === "string" && body.since
+            ? new Date(body.since)
+            : undefined;
+          const until = typeof body.until === "string" && body.until
+            ? new Date(body.until)
+            : undefined;
+          return json({ coverage: await gather(topic, since, until) });
         }
         const k = Math.min(Math.max(Number(body.k) || 200, 1), 1000);
-        return json(await brief(topic, k));
+        const minSimilarity = body.minSimilarity !== undefined && body.minSimilarity !== ""
+          ? Number(body.minSimilarity)
+          : undefined;
+        return json(await brief(topic, k, minSimilarity));
       }
 
       return errorJson(404, `no route: ${req.method} ${pathname}`);

@@ -13,7 +13,7 @@ import type { Briefing, Item, LLMPort, SourcePort, TopicDefinition } from "./por
 import type { CoverageReport } from "./ports.ts";
 import { PgCorpus } from "./corpus/store.ts";
 import { LocalEmbedder } from "./corpus/embed.ts";
-import { GdeltAdapter } from "./ingestion/gdelt.ts";
+import { GdeltAdapter, toGdeltDatetime } from "./ingestion/gdelt.ts";
 import { RedditAdapter } from "./ingestion/reddit.ts";
 import { RssAdapter } from "./ingestion/rss.ts";
 import { clusterItems } from "./analysis/cluster.ts";
@@ -32,6 +32,18 @@ function corpusFor(ctx: PipelineContext): PgCorpus {
   return new PgCorpus({ databaseUrl: ctx.databaseUrl, embedder: new LocalEmbedder() });
 }
 
+export interface GatherOptions {
+  /**
+   * Explicit historical window. Setting either bound switches GDELT to an
+   * explicit startdatetime/enddatetime range (instead of its default rolling
+   * timespan) and Reddit to `sort=relevance&t=all` (instead of `sort=new`) —
+   * a recency-biased default can't reach a multi-year-old story by
+   * construction (see historical-research-plan.md).
+   */
+  since?: Date;
+  until?: Date;
+}
+
 /**
  * Poll the pull-based sources (Reddit/GDELT/RSS), store what they return, and
  * assemble the CoverageReport (P1) — including the blind-spot reference signal.
@@ -40,16 +52,30 @@ function corpusFor(ctx: PipelineContext): PgCorpus {
 export async function gatherSources(
   topic: TopicDefinition,
   ctx: PipelineContext,
+  opts: GatherOptions = {},
 ): Promise<CoverageReport> {
   const progress = ctx.onProgress ?? (() => {});
   const corpus = corpusFor(ctx);
   await corpus.init();
 
+  const historical = Boolean(opts.since || opts.until);
   const adapters: SourcePort[] = [
-    new GdeltAdapter(),
-    new RedditAdapter(),
+    historical
+      ? new GdeltAdapter({
+        startDatetime: toGdeltDatetime(opts.since ?? new Date(0)),
+        endDatetime: toGdeltDatetime(opts.until ?? new Date()),
+      })
+      : new GdeltAdapter(),
+    historical ? new RedditAdapter({ sort: "relevance", time: "all" }) : new RedditAdapter(),
     new RssAdapter({ feeds: topic.feeds }),
   ];
+  if (historical) {
+    progress(
+      `historical mode: GDELT ${toGdeltDatetime(opts.since ?? new Date(0))}–${
+        toGdeltDatetime(opts.until ?? new Date())
+      }, Reddit sort=relevance&t=all`,
+    );
+  }
 
   const results: SourceResult[] = [];
   try {
@@ -81,6 +107,8 @@ export interface BriefOptions {
   /** Retrieval depth — how many stored items to analyze. */
   k?: number;
   now?: Date;
+  /** Minimum-similarity floor for retrieval; omit to use the corpus's default (P1). */
+  minSimilarity?: number;
 }
 
 /**
@@ -100,15 +128,25 @@ export async function briefTopic(
   const now = opts.now ?? new Date();
 
   const corpus = corpusFor(ctx);
-  let items: Item[];
+  let ranked: import("./ports.ts").RankedItem[];
   try {
-    items = await corpus.retrieveForAnalysis(topic, k);
+    ranked = await corpus.retrieveForAnalysis(topic, k, { minSimilarity: opts.minSimilarity });
   } finally {
     await corpus.close();
   }
-  progress(`retrieved ${items.length} stored item(s) for "${topic.id}"`);
+  const items = ranked.map((r) => r.item);
+  const similarityById = new Map(ranked.map((r) => [r.item.id, r.similarity]));
+  if (items.length === 0) {
+    // P1: "nothing cleared the floor" is a real, first-class answer — not
+    // empty output that gets silently explained away downstream.
+    progress(
+      `no strong matches for "${topic.id}" — nothing in the corpus cleared the similarity floor`,
+    );
+  } else {
+    progress(`retrieved ${items.length} stored item(s) for "${topic.id}"`);
+  }
 
-  const clusters = clusterItems(items, { now });
+  const clusters = clusterItems(items, { now, similarityById });
   const itemsById = new Map(items.map((it) => [it.id, it]));
 
   // Optional paid enrichment: label narratives + extract claims via Claude.

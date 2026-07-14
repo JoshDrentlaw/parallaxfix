@@ -205,19 +205,32 @@ function printCoverageReport(r: CoverageReport): void {
   for (const line of formatCoverageReport(r)) console.log(line);
 }
 
-/** Poll the pull-based sources (Reddit/GDELT/RSS), store, and report coverage. */
+/** Parse a `--since`/`--until` flag value into a Date, or null if unset/invalid. */
+function parseDateFlag(v: unknown): Date | null {
+  if (typeof v !== "string" || !v.trim()) return null;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * Poll the pull-based sources (Reddit/GDELT/RSS), store, and report coverage.
+ * `--since`/`--until` switch GDELT/Reddit into historical mode (explicit date
+ * range + sort=relevance&t=all) instead of their live-recency defaults.
+ */
 async function gather(args: Args): Promise<number> {
   const dbUrl = requireDatabaseUrl();
   if (!dbUrl) return 2;
 
   const topic = await resolveTopic(args);
+  const since = parseDateFlag(args.since);
+  const until = parseDateFlag(args.until);
   const { gatherSources } = await import("./pipeline.ts");
 
   console.log(`\nGathering pull-based sources for "${topic.id}"…`);
   const coverage = await gatherSources(topic, {
     databaseUrl: dbUrl,
     onProgress: (m) => console.log(`  ${m}`),
-  });
+  }, { since: since ?? undefined, until: until ?? undefined });
   printCoverageReport(coverage);
   return 0;
 }
@@ -229,6 +242,9 @@ async function analyze(args: Args): Promise<number> {
 
   const topic = await resolveTopic(args);
   const k = Number(args.k ?? 200);
+  const minSimilarity = args["min-similarity"] !== undefined
+    ? Number(args["min-similarity"])
+    : undefined;
 
   const { PgCorpus } = await import("./corpus/store.ts");
   const { LocalEmbedder } = await import("./corpus/embed.ts");
@@ -236,14 +252,22 @@ async function analyze(args: Args): Promise<number> {
   const { extractClaims } = await import("./analysis/claims.ts");
 
   const corpus = new PgCorpus({ databaseUrl: dbUrl, embedder: new LocalEmbedder() });
-  let items: Item[];
+  let ranked: import("./ports.ts").RankedItem[];
   try {
-    items = await corpus.retrieveForAnalysis(topic, k);
+    ranked = await corpus.retrieveForAnalysis(topic, k, { minSimilarity });
   } finally {
     await corpus.close();
   }
+  const items = ranked.map((r) => r.item);
+  const similarityById = new Map(ranked.map((r) => [r.item.id, r.similarity]));
 
-  const clusters = clusterItems(items);
+  if (items.length === 0) {
+    console.log(`\nNo strong matches for "${topic.id}" — nothing cleared the similarity floor.`);
+    coverageNotice([]);
+    return 0;
+  }
+
+  const clusters = clusterItems(items, { similarityById });
   console.log(`\nNarratives for "${topic.id}" (${clusters.length} from ${items.length} items):`);
   const itemsById = new Map(items.map((it) => [it.id, it]));
 
@@ -259,7 +283,11 @@ async function analyze(args: Args): Promise<number> {
 
   for (const [i, c] of clusters.entries()) {
     const rep = itemsById.get(c.item_ids[0]);
-    console.log(`\n#${i + 1}  velocity ${c.velocity.toFixed(2)}/h · size ${c.size}`);
+    console.log(
+      `\n#${i + 1}  velocity ${c.velocity.toFixed(2)}/h · relevance ${
+        c.relevance.toFixed(2)
+      } · size ${c.size}`,
+    );
     if (rep) {
       const t = rep.text.replace(/\s+/g, " ").trim();
       console.log(`  e.g. ${t.length > 160 ? `${t.slice(0, 157)}…` : t}`);
@@ -299,6 +327,9 @@ async function brief(args: Args): Promise<number> {
     topic = adHocTopic(phrase.split(",").map((s) => s.trim()).filter(Boolean));
   }
   const k = Number(args.k ?? 200);
+  const minSimilarity = args["min-similarity"] !== undefined
+    ? Number(args["min-similarity"])
+    : undefined;
 
   const { briefTopic } = await import("./pipeline.ts");
   const { renderBriefing } = await import("./briefing/synthesize.ts");
@@ -308,7 +339,7 @@ async function brief(args: Args): Promise<number> {
   const briefing = await briefTopic(topic, {
     databaseUrl: dbUrl,
     onProgress: (m) => console.log(`  ${m}`),
-  }, { k });
+  }, { k, minSimilarity });
 
   console.log("\n" + renderBriefing(briefing));
   return 0;
@@ -334,14 +365,22 @@ async function match(args: Args): Promise<number> {
 
   const topic = await resolveTopic(args);
   const k = Number(args.k ?? 20);
+  const minSimilarity = args["min-similarity"] !== undefined
+    ? Number(args["min-similarity"])
+    : undefined;
 
   const { PgCorpus } = await import("./corpus/store.ts");
   const { LocalEmbedder } = await import("./corpus/embed.ts");
   const corpus = new PgCorpus({ databaseUrl: dbUrl, embedder: new LocalEmbedder() });
 
   try {
-    const matches = await corpus.retrieve(topic, k);
-    console.log(`\nTop ${matches.length} match(es) for "${topic.id}":`);
+    const matches = await corpus.retrieve(topic, k, { minSimilarity });
+    if (matches.length === 0) {
+      // P1: a real, first-class answer — not silently rendered as "Top 0 match(es)".
+      console.log(`\nNo strong matches for "${topic.id}" — nothing cleared the similarity floor.`);
+    } else {
+      console.log(`\nTop ${matches.length} match(es) for "${topic.id}":`);
+    }
     for (const m of matches) printItem(m.item, m.similarity);
 
     if (matches.length > 0) {
@@ -468,11 +507,12 @@ async function main(): Promise<number> {
           "  status\n" +
           "  listen <keywords> [--topic f] [--limit n]\n" +
           "  ingest <keywords> [--topic f] [--limit n]      (Bluesky → corpus)\n" +
-          "  gather <keywords> [--topic f]                  (Reddit+GDELT+RSS → corpus, + coverage)\n" +
-          "  match  <keywords> [--topic f] [-k n] [--explain]  (semantic retrieval)\n" +
-          "  analyze <keywords> [--topic f] [-k n]          (cluster + velocity + claims)\n" +
+          "  gather <keywords> [--topic f] [--since d] [--until d]  (Reddit+GDELT+RSS → corpus, + coverage;\n" +
+          "                                                  --since/--until switch to historical mode)\n" +
+          "  match  <keywords> [--topic f] [-k n] [--min-similarity f] [--explain]  (semantic retrieval)\n" +
+          "  analyze <keywords> [--topic f] [-k n] [--min-similarity f]  (cluster + velocity + relevance + claims)\n" +
           "  topic new [<id>]                               (author a topic file)\n" +
-          '  brief  "<topic>" [--topic f] [-k n]            (structured briefing: narratives + claims + coverage)\n' +
+          '  brief  "<topic>" [--topic f] [-k n] [--min-similarity f]  (structured briefing: narratives + claims + coverage)\n' +
           "  serve  [--port 8420] [--host 127.0.0.1]        (web UI over the same pipeline)",
       );
       return 2;

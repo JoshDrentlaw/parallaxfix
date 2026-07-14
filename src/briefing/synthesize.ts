@@ -120,6 +120,7 @@ export function assembleBriefing(
       cluster_id: c.id,
       label: c.label,
       velocity: c.velocity,
+      relevance: c.relevance,
       size: c.size,
       first_seen: c.first_seen,
       representative_item_ids: reps,
@@ -158,9 +159,9 @@ export function buildSynthesisPrompt(b: Briefing): string {
   if (b.narratives.length === 0) lines.push("  (none — the corpus held no clustered items)");
   for (const [i, n] of b.narratives.entries()) {
     lines.push(
-      `\n[${i + 1}] ${n.label || "(unlabeled)"} — velocity ${
-        n.velocity.toFixed(2)
-      }/h, ${n.size} item(s)`,
+      `\n[${i + 1}] ${n.label || "(unlabeled)"} — velocity ${n.velocity.toFixed(2)}/h, relevance ${
+        n.relevance.toFixed(2)
+      }, ${n.size} item(s)`,
     );
     const rep = n.representative_item_ids.map((id) => b.provenance[id]).find(Boolean);
     if (rep) lines.push(`    e.g. (${rep.source}) ${rep.excerpt}`);
@@ -243,14 +244,17 @@ export function renderBriefing(b: Briefing): string {
   out.push("");
   out.push("── Narratives (ranked by velocity, P5) ──");
   if (b.narratives.length === 0) {
-    out.push("  (none — the corpus held no clustered items for this topic)");
+    out.push(
+      "  (none — the corpus held no clustered items for this topic; either nothing cleared the " +
+        "similarity floor or the corpus doesn't hold matching content — see coverage above)",
+    );
   }
   for (const [i, n] of b.narratives.entries()) {
     out.push("");
     out.push(
-      `#${i + 1}  ${n.label || "(unlabeled)"}  ·  velocity ${
-        n.velocity.toFixed(2)
-      }/h · size ${n.size}`,
+      `#${i + 1}  ${n.label || "(unlabeled)"}  ·  velocity ${n.velocity.toFixed(2)}/h · relevance ${
+        n.relevance.toFixed(2)
+      } · size ${n.size}`,
     );
     out.push(`    first seen ${n.first_seen.toISOString().slice(0, 16).replace("T", " ")}`);
     for (const id of n.representative_item_ids) {

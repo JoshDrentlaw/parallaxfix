@@ -360,6 +360,13 @@ code {
   color: var(--accent);
   font-weight: 600;
 }
+.relevance {
+  color: var(--muted);
+  margin-left: 0.5rem;
+}
+.relevance::before {
+  content: "· ";
+}
 
 .exemplar {
   margin: 0.65rem 0 0;

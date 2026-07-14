@@ -109,11 +109,22 @@ export interface RankedItem {
   similarity: number;
 }
 
+export interface RetrieveOptions {
+  /**
+   * Minimum cosine similarity a candidate must clear to be returned. Without a
+   * floor, retrieval always hands back the top-k *nearest* vectors, however weak
+   * the actual match — the exact false-confidence failure mode this option
+   * exists to close (see historical-research-plan.md). Omit to use the corpus's
+   * configured default.
+   */
+  minSimilarity?: number;
+}
+
 /** Storage + retrieval. Knows about Items and vectors; nothing about sources. */
 export interface CorpusPort {
   append(items: Item[]): Promise<void>;
   /** semantic topic matching: nearest items to the topic embedding, ranked */
-  retrieve(topic: TopicDefinition, k: number): Promise<RankedItem[]>;
+  retrieve(topic: TopicDefinition, k: number, opts?: RetrieveOptions): Promise<RankedItem[]>;
 }
 
 export interface EmbeddingPort {
@@ -137,6 +148,12 @@ export interface Cluster {
   /** Items/hour over the recent window — the "is it happening?" signal (P5). */
   velocity: number;
   size: number;
+  /**
+   * Mean cosine similarity of the cluster's items to the topic query — how
+   * close this narrative actually sits to what was asked for, not just how
+   * fast it's moving. 0 when no per-item similarity was available.
+   */
+  relevance: number;
 }
 
 /** Evidence type for an extracted claim (P4: separate verifiable from asserted). */
@@ -183,6 +200,8 @@ export interface BriefingNarrative {
   label: string;
   /** Items/hour over the recent window — narratives are ordered by this (P5). */
   velocity: number;
+  /** Mean cosine similarity to the topic query — how relevant, not just how fast. */
+  relevance: number;
   size: number;
   first_seen: Date;
   /** A few exemplar items (ids into `Briefing.provenance`) — provenance, not proof. */

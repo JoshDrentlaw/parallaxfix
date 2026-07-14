@@ -145,9 +145,42 @@ export function redditCredentialsFromEnv(): RedditCredentials | null {
   };
 }
 
+/** Reddit search's `sort` values this adapter uses. */
+export type RedditSort = "new" | "relevance";
+/** Reddit search's `t` (time) window; "all" is the only way past the live-recency default. */
+export type RedditTime = "all" | "hour" | "day" | "week" | "month" | "year";
+
 export interface RedditOptions {
   credentials?: RedditCredentials | null;
   limit?: number;
+  /**
+   * "new" (default) is recency-biased — every result is the newest match,
+   * which is exactly why a multi-year-old thread doesn't surface. "relevance"
+   * ranks by match quality instead, for historical-research runs (see
+   * historical-research-plan.md item 3).
+   */
+  sort?: RedditSort;
+  /** Reddit's `t` time filter. Only meaningful (and only sent) when set explicitly. */
+  time?: RedditTime;
+}
+
+/**
+ * Build the `search`/`.rss` query params shared by both access rungs — pure
+ * and network-free so the sort/time behavior is directly testable. `type` is
+ * OAuth-only (the public RSS surface has no equivalent param).
+ */
+export function redditSearchParams(
+  topic: TopicDefinition,
+  opts: { limit: number; sort: RedditSort; time: RedditTime | null; type?: "link" },
+): URLSearchParams {
+  const params = new URLSearchParams({
+    q: redditSearchQuery(topic),
+    limit: String(opts.limit),
+    sort: opts.sort,
+  });
+  if (opts.type) params.set("type", opts.type);
+  if (opts.time) params.set("t", opts.time);
+  return params;
 }
 
 export class RedditAdapter implements SourcePort {
@@ -155,11 +188,15 @@ export class RedditAdapter implements SourcePort {
   readonly #creds: RedditCredentials | null;
   readonly #limit: number;
   readonly #userAgent: string;
+  readonly #sort: RedditSort;
+  readonly #time: RedditTime | null;
 
   constructor(opts: RedditOptions = {}) {
     this.#creds = opts.credentials ?? redditCredentialsFromEnv();
     this.#limit = opts.limit ?? 50;
     this.#userAgent = this.#creds?.userAgent ?? "parallax-fix/0.1 (research)";
+    this.#sort = opts.sort ?? "new";
+    this.#time = opts.time ?? null;
   }
 
   /** Which rung of the access ladder this process will use. */
@@ -186,10 +223,10 @@ export class RedditAdapter implements SourcePort {
 
   async *#fetchOauth(creds: RedditCredentials, topic: TopicDefinition): AsyncIterable<Item> {
     const token = await this.#token(creds);
-    const params = new URLSearchParams({
-      q: redditSearchQuery(topic),
-      limit: String(this.#limit),
-      sort: "new",
+    const params = redditSearchParams(topic, {
+      limit: this.#limit,
+      sort: this.#sort,
+      time: this.#time,
       type: "link",
     });
     const res = await fetch(`https://oauth.reddit.com/search?${params}`, {
@@ -208,10 +245,10 @@ export class RedditAdapter implements SourcePort {
   }
 
   async *#fetchPublicRss(topic: TopicDefinition): AsyncIterable<Item> {
-    const params = new URLSearchParams({
-      q: redditSearchQuery(topic),
-      sort: "new",
-      limit: String(this.#limit),
+    const params = redditSearchParams(topic, {
+      limit: this.#limit,
+      sort: this.#sort,
+      time: this.#time,
     });
     const res = await fetch(`https://www.reddit.com/search.rss?${params}`, {
       headers: { "user-agent": this.#userAgent },

@@ -28,7 +28,13 @@ function item(id: string, text: string, when = NOW, source: Item["source"] = "re
   };
 }
 
-function cluster(id: string, itemIds: string[], velocity: number, label = ""): Cluster {
+function cluster(
+  id: string,
+  itemIds: string[],
+  velocity: number,
+  label = "",
+  relevance = 0.8,
+): Cluster {
   return {
     id,
     item_ids: itemIds,
@@ -37,6 +43,7 @@ function cluster(id: string, itemIds: string[], velocity: number, label = ""): C
     first_seen: hoursAgo(3),
     velocity,
     size: itemIds.length,
+    relevance,
   };
 }
 
@@ -58,8 +65,8 @@ function fixture() {
     ["b1", item("b1", "everyone is mad about the park", hoursAgo(5))],
   ]);
   // c1 is slower but bigger; c2 is faster — P5 ranks c2 first.
-  const c1 = cluster("c1", ["a1", "a2"], 0.5);
-  const c2 = cluster("c2", ["b1"], 4.0);
+  const c1 = cluster("c1", ["a1", "a2"], 0.5, "", 0.6);
+  const c2 = cluster("c2", ["b1"], 4.0, "", 0.9);
   const claims = [
     claim("cl1", "c1", {
       text: "They donated $5,000",
@@ -109,6 +116,10 @@ Deno.test("assembleBriefing: P5 ordering, provenance completeness, totals", () =
 
   // No prose unless synthesized.
   assertEquals(b.overview, null);
+
+  // Relevance rides along from Cluster → BriefingNarrative (not just velocity, P5).
+  assertEquals(b.narratives.find((n) => n.cluster_id === "c1")!.relevance, 0.6);
+  assertEquals(b.narratives.find((n) => n.cluster_id === "c2")!.relevance, 0.9);
 });
 
 Deno.test("buildSynthesisPrompt: carries the P2 guardrail and the coverage gaps", () => {
@@ -172,6 +183,8 @@ Deno.test("renderBriefing: foregrounds coverage (P1), shows provenance (P3), no-
   assertStringIncludes(text, "https://example.com/a2");
   // P4: evidence tag rendered.
   assertStringIncludes(text, "[primary_record]");
+  // Relevance is surfaced alongside velocity, not just implied by ranking.
+  assertStringIncludes(text, "relevance 0.90");
   // P2: the closing reminder.
   assertStringIncludes(text, "draws no conclusion");
 });
