@@ -81,18 +81,80 @@
             <p id="tm-edit-hint" class="hint">Select a saved topic above to edit it.</p>
             <div id="tm-edit-form" hidden>
               <div class="row">
-                <label class="grow">Keywords (comma-separated)
+                <label class="grow">
+                  <span class="field-label">Keywords (comma-separated)
+                    <span class="info-chip-wrap">
+                      <button
+                        type="button"
+                        class="info-chip"
+                        aria-expanded="false"
+                        aria-label="What is this field for?"
+                      >
+                        ?
+                      </button>
+                      <span class="info-popover" role="tooltip" hidden
+                      >Embedded alongside Entities and Description to find semantically similar
+                        items. Not a hard filter — items don't need to contain these exact
+                        words.</span>
+                    </span>
+                  </span>
                   <input id="tm-edit-keywords" autocomplete="off">
                 </label>
-                <label class="grow">Entities (comma-separated)
+                <label class="grow">
+                  <span class="field-label">Entities (comma-separated)
+                    <span class="info-chip-wrap">
+                      <button
+                        type="button"
+                        class="info-chip"
+                        aria-expanded="false"
+                        aria-label="What is this field for?"
+                      >
+                        ?
+                      </button>
+                      <span class="info-popover" role="tooltip" hidden
+                      >People, places, or organizations central to this topic. Embedded with
+                        Keywords and Description for semantic matching, not exact-text
+                        matching.</span>
+                    </span>
+                  </span>
                   <input id="tm-edit-entities" autocomplete="off">
                 </label>
               </div>
               <div class="row">
-                <label class="grow">Description
+                <label class="grow">
+                  <span class="field-label">Description
+                    <span class="info-chip-wrap">
+                      <button
+                        type="button"
+                        class="info-chip"
+                        aria-expanded="false"
+                        aria-label="What is this field for?"
+                      >
+                        ?
+                      </button>
+                      <span class="info-popover" role="tooltip" hidden
+                      >A sentence or two describing the topic. The richer this is, the better the
+                        semantic match tends to be.</span>
+                    </span>
+                  </span>
                   <input id="tm-edit-description" autocomplete="off">
                 </label>
-                <label class="grow">Exclude (comma-separated)
+                <label class="grow">
+                  <span class="field-label">Exclude (comma-separated)
+                    <span class="info-chip-wrap">
+                      <button
+                        type="button"
+                        class="info-chip"
+                        aria-expanded="false"
+                        aria-label="What is this field for?"
+                      >
+                        ?
+                      </button>
+                      <span class="info-popover" role="tooltip" hidden
+                      >Hard negatives. Any item matching these is dropped after retrieval, even if
+                        it's otherwise a close semantic match.</span>
+                    </span>
+                  </span>
                   <input id="tm-edit-exclude" autocomplete="off">
                 </label>
               </div>
@@ -105,7 +167,22 @@
               <h3 class="tm-subtitle">RSS feeds</h3>
               <ul id="tm-edit-feed-list" class="feed-list"></ul>
               <div class="row">
-                <label class="grow">Add feed URL
+                <label class="grow">
+                  <span class="field-label">Add feed URL
+                    <span class="info-chip-wrap">
+                      <button
+                        type="button"
+                        class="info-chip"
+                        aria-expanded="false"
+                        aria-label="What is this field for?"
+                      >
+                        ?
+                      </button>
+                      <span class="info-popover" role="tooltip" hidden
+                      >An RSS/Atom feed to pull into this topic's corpus. Checked for validity
+                        before it's added.</span>
+                    </span>
+                  </span>
                   <input
                     id="tm-edit-feed-url"
                     placeholder="https://example.com/feed.xml"
@@ -120,7 +197,22 @@
 
           <section id="tm-new" class="tm-panel" hidden>
             <div class="row">
-              <label class="grow">Topic name
+              <label class="grow">
+                <span class="field-label">Topic name
+                  <span class="info-chip-wrap">
+                    <button
+                      type="button"
+                      class="info-chip"
+                      aria-expanded="false"
+                      aria-label="What is this field for?"
+                    >
+                      ?
+                    </button>
+                    <span class="info-popover" role="tooltip" hidden
+                    >A short label for this topic — what you'll pick from the Saved topic dropdown
+                      later. Not a search query.</span>
+                  </span>
+                </span>
                 <input
                   id="tm-new-id"
                   placeholder="Riverside City Council Recall"
@@ -129,18 +221,78 @@
               </label>
             </div>
             <div class="row">
-              <label class="grow">Keywords (comma-separated)
+              <label class="grow">
+                <span class="field-label">Keywords (comma-separated)
+                  <span class="info-chip-wrap">
+                    <button
+                      type="button"
+                      class="info-chip"
+                      aria-expanded="false"
+                      aria-label="What is this field for?"
+                    >
+                      ?
+                    </button>
+                    <span class="info-popover" role="tooltip" hidden
+                    >Embedded alongside Entities and Description to find semantically similar items.
+                      Not a hard filter — items don't need to contain these exact words.</span>
+                  </span>
+                </span>
                 <input id="tm-new-keywords" autocomplete="off">
               </label>
-              <label class="grow">Entities (comma-separated)
+              <label class="grow">
+                <span class="field-label">Entities (comma-separated)
+                  <span class="info-chip-wrap">
+                    <button
+                      type="button"
+                      class="info-chip"
+                      aria-expanded="false"
+                      aria-label="What is this field for?"
+                    >
+                      ?
+                    </button>
+                    <span class="info-popover" role="tooltip" hidden
+                    >People, places, or organizations central to this topic. Embedded with Keywords
+                      and Description for semantic matching, not exact-text matching.</span>
+                  </span>
+                </span>
                 <input id="tm-new-entities" autocomplete="off">
               </label>
             </div>
             <div class="row">
-              <label class="grow">Description
+              <label class="grow">
+                <span class="field-label">Description
+                  <span class="info-chip-wrap">
+                    <button
+                      type="button"
+                      class="info-chip"
+                      aria-expanded="false"
+                      aria-label="What is this field for?"
+                    >
+                      ?
+                    </button>
+                    <span class="info-popover" role="tooltip" hidden
+                    >A sentence or two describing the topic. The richer this is, the better the
+                      semantic match tends to be.</span>
+                  </span>
+                </span>
                 <input id="tm-new-description" autocomplete="off">
               </label>
-              <label class="grow">Exclude (comma-separated)
+              <label class="grow">
+                <span class="field-label">Exclude (comma-separated)
+                  <span class="info-chip-wrap">
+                    <button
+                      type="button"
+                      class="info-chip"
+                      aria-expanded="false"
+                      aria-label="What is this field for?"
+                    >
+                      ?
+                    </button>
+                    <span class="info-popover" role="tooltip" hidden
+                    >Hard negatives. Any item matching these is dropped after retrieval, even if
+                      it's otherwise a close semantic match.</span>
+                  </span>
+                </span>
                 <input id="tm-new-exclude" autocomplete="off">
               </label>
             </div>
@@ -148,7 +300,22 @@
             <h3 class="tm-subtitle">RSS feeds (optional)</h3>
             <ul id="tm-new-feed-list" class="feed-list"></ul>
             <div class="row">
-              <label class="grow">Add feed URL
+              <label class="grow">
+                <span class="field-label">Add feed URL
+                  <span class="info-chip-wrap">
+                    <button
+                      type="button"
+                      class="info-chip"
+                      aria-expanded="false"
+                      aria-label="What is this field for?"
+                    >
+                      ?
+                    </button>
+                    <span class="info-popover" role="tooltip" hidden
+                    >An RSS/Atom feed to pull into this topic's corpus. Checked for validity before
+                      it's added.</span>
+                  </span>
+                </span>
                 <input
                   id="tm-new-feed-url"
                   placeholder="https://example.com/feed.xml"
