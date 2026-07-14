@@ -1,0 +1,54 @@
+# nucklehead is the development environment for Parallax Fix (private, Tailscale-only;
+# see CLAUDE.md). Real secrets come from an untracked, gitignored .env in this dir
+# (auto-loaded by compose for ${VAR} substitution).
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: parallax-fix-postgres
+    environment:
+      POSTGRES_USER: parallaxfix
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      POSTGRES_DB: parallaxfix
+    ports:
+      # Published (unlike dead-reckoning's) so the CLI tasks (ingest/gather/match/
+      # brief), which still run directly on the host via `deno task`, can reach it —
+      # the web service below reaches it over the docker network instead.
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - parallax_fix_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U parallaxfix -d parallaxfix"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # The web UI (`deno task serve`) — gather/brief over HTTP, fronted by Caddy at
+  # /parallax on nucklehead.
+  web:
+    build: .
+    container_name: parallax-fix-web
+    restart: unless-stopped
+    environment:
+      # Internal docker-network address, not the host-published 5434 above —
+      # that port only exists for the host-run CLI tasks.
+      DATABASE_URL: postgres://parallaxfix:${POSTGRES_PASSWORD:?set in .env}@postgres:5432/parallaxfix
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      REDDIT_CLIENT_ID: ${REDDIT_CLIENT_ID:-}
+      REDDIT_CLIENT_SECRET: ${REDDIT_CLIENT_SECRET:-}
+      REDDIT_USER_AGENT: ${REDDIT_USER_AGENT:-parallax-fix/0.1 (research)}
+      PARALLAX_FIX_EMBED_MODEL: ${PARALLAX_FIX_EMBED_MODEL:-BAAI/bge-small-en-v1.5}
+      PARALLAX_FIX_DATA_DIR: ${PARALLAX_FIX_DATA_DIR:-./data}
+      PORT: ${PORT:-8420}
+    ports:
+      # 127.0.0.1 binding: only the host Caddy may reach this; Tailscale is the boundary.
+      - "127.0.0.1:8420:8420"
+    volumes:
+      - parallax_fix_models:/app/models
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  parallax_fix_pg_data:
+  parallax_fix_models:
