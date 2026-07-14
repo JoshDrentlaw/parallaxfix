@@ -11,7 +11,20 @@
  */
 
 import type { Briefing, CoverageReport, TopicDefinition } from "../ports.ts";
-import { adHocTopic, loadTopic, slugifyTopicId } from "../ingestion/topic.ts";
+import {
+  adHocTopic,
+  deleteTopic,
+  listTopics,
+  loadTopic,
+  parseCommaList,
+  saveTopic,
+  slugifyTopicId,
+  topicExists,
+  topicFilePath,
+  TOPICS_DIR,
+  validateTopicDraft,
+} from "../ingestion/topic.ts";
+import { type FeedValidationResult, validateRssFeed } from "../ingestion/rss.ts";
 import { DECLARED_BLIND_SPOTS } from "../briefing/coverage.ts";
 
 /** Injectable seams so tests (and demos) can run the server without Postgres. */
@@ -19,11 +32,12 @@ export interface WebDeps {
   databaseUrl?: () => string | undefined;
   gather?: (topic: TopicDefinition, since?: Date, until?: Date) => Promise<CoverageReport>;
   brief?: (topic: TopicDefinition, k: number, minSimilarity?: number) => Promise<Briefing>;
+  /** Where saved topics live. Defaults to `TOPICS_DIR`; tests point this at a temp dir. */
+  topicsDir?: string;
 }
 
 const STATIC_DIR = new URL("./static/", import.meta.url);
 const FAVICON = new URL("../../favicon.svg", import.meta.url);
-const TOPICS_DIR = "config/topics";
 
 const CSP = [
   "default-src 'none'",
@@ -54,37 +68,178 @@ async function staticFile(name: string, type: string): Promise<Response> {
   return new Response(body, { headers });
 }
 
-/** List saved topics from config/topics/*.json (missing dir → empty list). */
-async function listTopics(): Promise<TopicDefinition[]> {
-  const topics: TopicDefinition[] = [];
-  try {
-    for await (const entry of Deno.readDir(TOPICS_DIR)) {
-      if (!entry.isFile || !entry.name.endsWith(".json")) continue;
-      try {
-        topics.push(await loadTopic(`${TOPICS_DIR}/${entry.name}`));
-      } catch {
-        // an unparseable topic file shouldn't take the endpoint down
-      }
-    }
-  } catch {
-    // no config/topics dir yet
-  }
-  return topics.sort((a, b) => a.id.localeCompare(b.id));
-}
-
 /** Topic from a request body: a saved topic by id, or ad-hoc keywords. */
 async function topicFromBody(
   body: { topicId?: unknown; keywords?: unknown },
+  dir: string,
 ): Promise<TopicDefinition | null> {
   if (typeof body.topicId === "string" && body.topicId.trim()) {
     const slug = slugifyTopicId(body.topicId);
-    return await loadTopic(`${TOPICS_DIR}/${slug}.json`);
+    return await loadTopic(topicFilePath(slug, dir));
   }
-  if (typeof body.keywords === "string" && body.keywords.trim()) {
-    const keywords = body.keywords.split(",").map((s: string) => s.trim()).filter(Boolean);
-    return adHocTopic(keywords);
+  const keywords = parseCommaList(body.keywords);
+  return keywords.length ? adHocTopic(keywords) : null;
+}
+
+/**
+ * A safe topic id from a URL path segment: decode, then slugify. Every id
+ * that reaches the filesystem comes through here, so a hostile path segment
+ * (`../../etc/passwd`, encoded or not) can never survive as anything but
+ * hyphens — `slugifyTopicId` strips everything outside `[a-z0-9-]`.
+ */
+function topicIdFromPath(segment: string): string {
+  let decoded = segment;
+  try {
+    decoded = decodeURIComponent(segment);
+  } catch {
+    // malformed percent-encoding — fall through and slugify the raw segment
   }
-  return null;
+  return slugifyTopicId(decoded);
+}
+
+interface TopicDraftBody {
+  id?: unknown;
+  keywords?: unknown;
+  entities?: unknown;
+  description?: unknown;
+  exclude?: unknown;
+  feeds?: unknown;
+}
+
+function feedsFromBody(v: unknown): string[] {
+  return Array.isArray(v)
+    ? v.filter((f): f is string => typeof f === "string" && f.trim() !== "")
+    : [];
+}
+
+async function readJsonBody<T>(req: Request): Promise<T | Response> {
+  try {
+    return await req.json() as T;
+  } catch {
+    return errorJson(400, "request body must be JSON");
+  }
+}
+
+/** POST /api/topics — create a new saved topic. 409s if the id is already taken. */
+async function createTopic(req: Request, dir: string): Promise<Response> {
+  const body = await readJsonBody<TopicDraftBody>(req);
+  if (body instanceof Response) return body;
+
+  const id = slugifyTopicId(typeof body.id === "string" ? body.id : "");
+  if (!id) return errorJson(400, "id is required");
+  if (await topicExists(id, dir)) {
+    return errorJson(409, `a topic "${id}" already exists — PUT /api/topics/${id} to update it`);
+  }
+
+  const topic: TopicDefinition = {
+    id,
+    keywords: parseCommaList(body.keywords),
+    entities: parseCommaList(body.entities),
+    description: typeof body.description === "string" ? body.description.trim() : "",
+    exclude: parseCommaList(body.exclude),
+    feeds: feedsFromBody(body.feeds),
+  };
+  const draftError = validateTopicDraft(topic);
+  if (draftError) return errorJson(400, draftError);
+
+  await saveTopic(topic, dir);
+  return json(topic, 201);
+}
+
+/** PUT /api/topics/:id — update an existing saved topic. Omitted fields keep their current value. */
+async function updateTopic(id: string, req: Request, dir: string): Promise<Response> {
+  let existing: TopicDefinition;
+  try {
+    existing = await loadTopic(topicFilePath(id, dir));
+  } catch {
+    return errorJson(404, `no saved topic "${id}" in ${dir}/`);
+  }
+
+  const body = await readJsonBody<TopicDraftBody>(req);
+  if (body instanceof Response) return body;
+
+  const updated: TopicDefinition = {
+    id,
+    keywords: body.keywords !== undefined ? parseCommaList(body.keywords) : existing.keywords,
+    entities: body.entities !== undefined ? parseCommaList(body.entities) : existing.entities,
+    description: body.description !== undefined
+      ? String(body.description).trim()
+      : existing.description,
+    exclude: body.exclude !== undefined ? parseCommaList(body.exclude) : existing.exclude,
+    feeds: body.feeds !== undefined ? feedsFromBody(body.feeds) : existing.feeds,
+  };
+  const draftError = validateTopicDraft(updated);
+  if (draftError) return errorJson(400, draftError);
+
+  await saveTopic(updated, dir);
+  return json(updated);
+}
+
+/** DELETE /api/topics/:id — remove a saved topic. */
+async function removeTopic(id: string, dir: string): Promise<Response> {
+  if (!(await topicExists(id, dir))) return errorJson(404, `no saved topic "${id}" in ${dir}/`);
+  await deleteTopic(id, dir);
+  return json({ deleted: id });
+}
+
+/**
+ * POST /api/feeds/validate — check a candidate feed URL without saving it
+ * anywhere. A bad feed is a normal, structured `{ ok: false, reason }` result
+ * (200), not an error — the same "say so plainly" spirit as coverage gaps (P1).
+ */
+async function validateFeed(req: Request): Promise<Response> {
+  const body = await readJsonBody<{ url?: unknown }>(req);
+  if (body instanceof Response) return body;
+  if (typeof body.url !== "string" || !body.url.trim()) return errorJson(400, "url is required");
+  return json(await validateRssFeed(body.url.trim()));
+}
+
+/**
+ * POST /api/topics/:id/feeds — validate a feed, then (only if it checks out)
+ * append it to the topic and save. Duplicate URLs and failed validations come
+ * back as `{ ok: false, reason }` rather than a write.
+ */
+async function addFeed(id: string, req: Request, dir: string): Promise<Response> {
+  let topic: TopicDefinition;
+  try {
+    topic = await loadTopic(topicFilePath(id, dir));
+  } catch {
+    return errorJson(404, `no saved topic "${id}" in ${dir}/`);
+  }
+
+  const body = await readJsonBody<{ url?: unknown }>(req);
+  if (body instanceof Response) return body;
+  if (typeof body.url !== "string" || !body.url.trim()) return errorJson(400, "url is required");
+  const url = body.url.trim();
+
+  if ((topic.feeds ?? []).includes(url)) {
+    const result: FeedValidationResult = { ok: false, reason: "already configured for this topic" };
+    return json(result);
+  }
+
+  const validation = await validateRssFeed(url);
+  if (!validation.ok) return json(validation);
+
+  topic.feeds = [...(topic.feeds ?? []), url];
+  await saveTopic(topic, dir);
+  return json({ ...validation, topic });
+}
+
+/** DELETE /api/topics/:id/feeds?url=... — drop a feed from a topic. */
+async function removeFeed(id: string, url: string, dir: string): Promise<Response> {
+  let topic: TopicDefinition;
+  try {
+    topic = await loadTopic(topicFilePath(id, dir));
+  } catch {
+    return errorJson(404, `no saved topic "${id}" in ${dir}/`);
+  }
+
+  const before = topic.feeds?.length ?? 0;
+  topic.feeds = (topic.feeds ?? []).filter((f) => f !== url);
+  if (topic.feeds.length === before) return errorJson(404, "feed not found on this topic");
+
+  await saveTopic(topic, dir);
+  return json(topic);
 }
 
 /**
@@ -119,8 +274,10 @@ export function createHandler(deps: WebDeps = {}): (req: Request) => Promise<Res
       return await briefTopic(topic, { databaseUrl: db }, { k, minSimilarity });
     });
 
+  const topicsDir = deps.topicsDir ?? TOPICS_DIR;
+
   return async (req: Request): Promise<Response> => {
-    const { pathname } = new URL(req.url);
+    const { pathname, searchParams } = new URL(req.url);
 
     try {
       if (req.method === "GET") {
@@ -142,8 +299,42 @@ export function createHandler(deps: WebDeps = {}): (req: Request) => Promise<Res
               declared_blind_spots: DECLARED_BLIND_SPOTS,
             });
           case "/api/topics":
-            return json(await listTopics());
+            return json(await listTopics(topicsDir));
         }
+      }
+
+      // Topic CRUD + per-topic feed management. `id` is sanitized before it
+      // ever touches the filesystem (see topicIdFromPath).
+      const feedsMatch = pathname.match(/^\/api\/topics\/([^/]+)\/feeds$/);
+      if (feedsMatch) {
+        const id = topicIdFromPath(feedsMatch[1]);
+        if (req.method === "POST") return await addFeed(id, req, topicsDir);
+        if (req.method === "DELETE") {
+          const url = searchParams.get("url");
+          if (!url) return errorJson(400, "url query parameter is required");
+          return await removeFeed(id, url, topicsDir);
+        }
+      }
+
+      const topicMatch = pathname.match(/^\/api\/topics\/([^/]+)$/);
+      if (topicMatch) {
+        const id = topicIdFromPath(topicMatch[1]);
+        if (req.method === "GET") {
+          try {
+            return json(await loadTopic(topicFilePath(id, topicsDir)));
+          } catch {
+            return errorJson(404, `no saved topic "${id}" in ${topicsDir}/`);
+          }
+        }
+        if (req.method === "PUT") return await updateTopic(id, req, topicsDir);
+        if (req.method === "DELETE") return await removeTopic(id, topicsDir);
+      }
+
+      if (req.method === "POST" && pathname === "/api/topics") {
+        return await createTopic(req, topicsDir);
+      }
+      if (req.method === "POST" && pathname === "/api/feeds/validate") {
+        return await validateFeed(req);
       }
 
       if (req.method === "POST" && (pathname === "/api/gather" || pathname === "/api/brief")) {
@@ -162,9 +353,9 @@ export function createHandler(deps: WebDeps = {}): (req: Request) => Promise<Res
         }
         let topic: TopicDefinition | null;
         try {
-          topic = await topicFromBody(body);
+          topic = await topicFromBody(body, topicsDir);
         } catch {
-          return errorJson(404, `no saved topic "${body.topicId}" in ${TOPICS_DIR}/`);
+          return errorJson(404, `no saved topic "${body.topicId}" in ${topicsDir}/`);
         }
         if (!topic) return errorJson(400, "provide topicId (saved) or keywords (comma-separated)");
 

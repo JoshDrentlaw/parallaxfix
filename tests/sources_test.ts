@@ -18,9 +18,35 @@ import {
   redditSearchParams,
   redditSearchQuery,
 } from "../src/ingestion/reddit.ts";
-import { normalizeRssEntry } from "../src/ingestion/rss.ts";
+import { normalizeRssEntry, validateRssFeed } from "../src/ingestion/rss.ts";
 import { stableId } from "../src/ingestion/normalize.ts";
 import { adHocTopic } from "../src/ingestion/topic.ts";
+
+/** Stub global fetch for one test, restoring it afterward even on failure. */
+async function withFetch<T>(impl: typeof fetch, fn: () => Promise<T>): Promise<T> {
+  const original = globalThis.fetch;
+  globalThis.fetch = impl;
+  try {
+    return await fn();
+  } finally {
+    globalThis.fetch = original;
+  }
+}
+
+const SAMPLE_RSS = `<?xml version="1.0"?>
+<rss version="2.0"><channel>
+  <title>Raincross Gazette</title>
+  <item>
+    <title>Council schedules recall hearing</title>
+    <link>https://raincrossgazette.example/recall</link>
+    <pubDate>Mon, 29 Jun 2026 08:00:00 GMT</pubDate>
+  </item>
+  <item>
+    <title>Earlier story</title>
+    <link>https://raincrossgazette.example/earlier</link>
+    <pubDate>Sun, 28 Jun 2026 08:00:00 GMT</pubDate>
+  </item>
+</channel></rss>`;
 
 Deno.test("GDELT: maps an article, parses seendate, requires a url", () => {
   const a: GdeltArticle = {
@@ -245,4 +271,73 @@ Deno.test("Bluesky search params: since/until serialize as ISO datetimes (histor
   });
   assertEquals(params.get("since"), "2018-01-01T00:00:00.000Z");
   assertEquals(params.get("until"), "2018-12-31T00:00:00.000Z");
+});
+
+Deno.test("validateRssFeed: a good feed reports title, entry count, and a preview", async () => {
+  const result = await withFetch(
+    () => Promise.resolve(new Response(SAMPLE_RSS, { status: 200 })),
+    () => validateRssFeed("https://raincrossgazette.example/rss"),
+  );
+  assert(result.ok);
+  assertEquals(result.title, "Raincross Gazette");
+  assertEquals(result.entryCount, 2);
+  assertEquals(result.preview.length, 2);
+  assertEquals(result.preview[0].title, "Council schedules recall hearing");
+  assertEquals(result.preview[0].link, "https://raincrossgazette.example/recall");
+});
+
+Deno.test("validateRssFeed: rejects non-http(s) URLs before ever fetching", async () => {
+  let fetched = false;
+  const result = await withFetch(
+    () => {
+      fetched = true;
+      return Promise.resolve(new Response("", { status: 200 }));
+    },
+    () => validateRssFeed("file:///etc/passwd"),
+  );
+  assert(!result.ok);
+  assert(!fetched, "must not fetch a non-http(s) URL");
+});
+
+Deno.test("validateRssFeed: a malformed URL is rejected, not thrown", async () => {
+  const result = await validateRssFeed("not a url");
+  assert(!result.ok);
+  assertEquals(result.reason, "not a valid URL");
+});
+
+Deno.test("validateRssFeed: a non-2xx response is a structured failure", async () => {
+  const result = await withFetch(
+    () => Promise.resolve(new Response("not found", { status: 404, statusText: "Not Found" })),
+    () => validateRssFeed("https://example.com/gone.rss"),
+  );
+  assert(!result.ok);
+  assertEquals(result.reason, "feed returned 404 Not Found");
+});
+
+Deno.test("validateRssFeed: non-XML body is a structured failure, not a throw", async () => {
+  const result = await withFetch(
+    () => Promise.resolve(new Response("<html>not a feed</html>", { status: 200 })),
+    () => validateRssFeed("https://example.com/notafeed"),
+  );
+  assert(!result.ok);
+});
+
+Deno.test("validateRssFeed: a feed with zero entries is rejected", async () => {
+  const empty =
+    `<?xml version="1.0"?><rss version="2.0"><channel><title>Empty</title></channel></rss>`;
+  const result = await withFetch(
+    () => Promise.resolve(new Response(empty, { status: 200 })),
+    () => validateRssFeed("https://example.com/empty.rss"),
+  );
+  assert(!result.ok);
+  assertEquals(result.reason, "feed parsed but has no entries");
+});
+
+Deno.test("validateRssFeed: a network failure comes back structured, not thrown", async () => {
+  const result = await withFetch(
+    () => Promise.reject(new TypeError("network error")),
+    () => validateRssFeed("https://example.com/unreachable.rss"),
+  );
+  assert(!result.ok);
+  assert(result.reason.includes("could not reach the feed"));
 });

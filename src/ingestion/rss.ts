@@ -47,6 +47,87 @@ export function normalizeRssEntry(e: RssEntryLike, feedTitle: string): Item | nu
   };
 }
 
+/** Result of checking a candidate feed URL before it's added to a topic. */
+export type FeedValidationResult =
+  | {
+    ok: true;
+    title: string;
+    entryCount: number;
+    /** A few recent entries, so a human can eyeball that this is the right feed. */
+    preview: { title: string; link: string; published: string | null }[];
+  }
+  | { ok: false; reason: string };
+
+export interface ValidateFeedOptions {
+  /** How many entries to include in the preview. */
+  previewCount?: number;
+  /** Abort the fetch after this many ms. */
+  timeoutMs?: number;
+}
+
+/**
+ * Fetch + parse a candidate feed URL and report back what a human needs to
+ * decide whether it's the right feed: valid RSS/Atom, has entries, a title,
+ * and a preview. Never throws — every failure mode (bad URL, unreachable,
+ * non-2xx, not XML, no entries) comes back as a structured `{ ok: false,
+ * reason }`, the same "say so plainly" spirit as the rest of the app (P1).
+ */
+export async function validateRssFeed(
+  url: string,
+  opts: ValidateFeedOptions = {},
+): Promise<FeedValidationResult> {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return { ok: false, reason: "not a valid URL" };
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return { ok: false, reason: "only http(s) feed URLs are supported" };
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      headers: { "user-agent": "parallax-fix/0.1 (research)" },
+      signal: AbortSignal.timeout(opts.timeoutMs ?? 10_000),
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      reason: `could not reach the feed (${err instanceof Error ? err.message : err})`,
+    };
+  }
+  if (!res.ok) {
+    await res.body?.cancel();
+    return { ok: false, reason: `feed returned ${res.status} ${res.statusText}` };
+  }
+
+  const xml = await res.text();
+  let feed: Awaited<ReturnType<typeof parseFeed>>;
+  try {
+    feed = await parseFeed(xml);
+  } catch {
+    return { ok: false, reason: "response is not valid RSS/Atom XML" };
+  }
+
+  const entries = feed.entries ?? [];
+  if (entries.length === 0) {
+    return { ok: false, reason: "feed parsed but has no entries" };
+  }
+
+  return {
+    ok: true,
+    title: feed.title?.value ?? url,
+    entryCount: entries.length,
+    preview: entries.slice(0, opts.previewCount ?? 3).map((e) => ({
+      title: e.title?.value ?? "(untitled)",
+      link: e.links?.[0]?.href ?? "",
+      published: (e.published ?? e.updated)?.toISOString() ?? null,
+    })),
+  };
+}
+
 export interface RssOptions {
   feeds?: string[];
 }

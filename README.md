@@ -26,7 +26,7 @@ deno task start        # status: runtime config + coverage gaps
 
 # Stream the keystone source (Bluesky/Jetstream) for a topic:
 deno task start listen wildfire,riverside --limit 10
-deno task start listen --topic config/topics/example.json --limit 10
+deno task start listen --topic config/topics/riverside-recall.json --limit 10
 
 # Author a reusable topic (interactive prompts, or flags for scripting):
 deno task start topic new riverside-recall \
