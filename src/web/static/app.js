@@ -581,6 +581,54 @@ async function removeEditFeed(id, url) {
   }
 }
 
+// ── field-description popovers: tap the "?" chip to see what a field is
+//    for. Click-triggered, not hover-only — a tooltip a touch device can't
+//    reach isn't one tap away. Outside-tap or Escape dismisses; opening one
+//    closes any other that's open. ──────────────────────────────────────────
+
+function closeInfoChips(except) {
+  for (const chip of document.querySelectorAll('.info-chip[aria-expanded="true"]')) {
+    if (chip === except) continue;
+    chip.setAttribute("aria-expanded", "false");
+    chip.nextElementSibling.hidden = true;
+  }
+}
+
+function initInfoChips() {
+  document.addEventListener("click", (e) => {
+    const chip = e.target.closest(".info-chip");
+    if (chip) {
+      e.preventDefault();
+      const popover = chip.nextElementSibling;
+      const willOpen = popover.hidden;
+      closeInfoChips();
+      popover.style.left = "";
+      popover.hidden = !willOpen;
+      chip.setAttribute("aria-expanded", String(willOpen));
+      // The popover defaults to left:0 relative to its chip — fine for a
+      // chip with room to its right, but a chip near either screen edge
+      // (e.g. "Topic name", flush left) would otherwise push it off-screen.
+      // Nudge it back on-screen with a pixel offset rather than a fixed
+      // left/right side, since either fixed side can overflow depending on
+      // where the chip sits.
+      if (willOpen) {
+        const margin = 12;
+        const wrapLeft = chip.parentElement.getBoundingClientRect().left;
+        const width = popover.getBoundingClientRect().width;
+        const maxLeft = globalThis.innerWidth - margin - width;
+        const clampedLeft = Math.max(margin, Math.min(wrapLeft, maxLeft));
+        const offset = clampedLeft - wrapLeft;
+        if (offset !== 0) popover.style.left = `${offset}px`;
+      }
+      return;
+    }
+    if (!e.target.closest(".info-popover")) closeInfoChips();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeInfoChips();
+  });
+}
+
 function initTopicManager() {
   for (const btn of document.querySelectorAll(".tm-tab")) {
     btn.addEventListener("click", () => switchTab(btn.dataset.tab));
@@ -601,6 +649,7 @@ initTheme();
 loadStatus();
 loadTopics();
 initTopicManager();
+initInfoChips();
 $("#gather-btn").addEventListener("click", runGather);
 $("#brief-btn").addEventListener("click", runBrief);
 $("#keywords").addEventListener("keydown", (e) => {
