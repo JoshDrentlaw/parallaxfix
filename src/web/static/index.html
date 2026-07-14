@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Parallax Fix</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/app.css">
+  </head>
+  <body>
+    <header>
+      <div class="brand">
+        <img src="/favicon.svg" alt="" width="30" height="30">
+        <div>
+          <h1>Parallax Fix</h1>
+          <p class="tagline">
+            Topic-briefing engine · read-only · provenance-first · no verdicts
+          </p>
+        </div>
+      </div>
+      <div class="header-right">
+        <span id="status-chips" class="chips"></span>
+        <button id="theme-toggle" type="button" title="Toggle light/dark">◐</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="card controls">
+        <div class="row">
+          <label>Saved topic
+            <select id="topic-select"><option value="">— ad hoc —</option></select>
+          </label>
+          <label class="grow">Keywords (comma-separated)
+            <input id="keywords" placeholder="recall, city council, Riverside" autocomplete="off">
+          </label>
+          <label class="narrow">Depth (k)
+            <input id="k" type="number" value="200" min="1" max="1000">
+          </label>
+        </div>
+        <div class="row actions">
+          <button id="gather-btn" type="button">Gather sources</button>
+          <button id="brief-btn" type="button" class="primary">Generate briefing</button>
+          <span id="busy" class="busy" hidden></span>
+        </div>
+        <p class="hint">
+          <strong>Gather</strong> polls Reddit + GDELT + RSS into the corpus;
+          <strong>Generate briefing</strong> reads the corpus as-is. Stream the Bluesky keystone in
+          with <code>deno task ingest</code>.
+        </p>
+      </section>
+
+      <section id="error" class="card error" hidden></section>
+      <div id="results"></div>
+    </main>
+
+    <footer>
+      A briefing describes the conversation and its evidence. It draws no conclusion and recommends
+      no action — verify each claim via its provenance links.
+    </footer>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

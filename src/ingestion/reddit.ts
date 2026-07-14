@@ -1,14 +1,25 @@
 /**
  * Reddit adapter — free tier, **non-commercial/research only**, pull-based
- * (poll, no webhooks). Uses app-only OAuth (client_credentials) then the search
- * endpoint. Read-only; never posts.
+ * (poll, no webhooks). Read-only; never posts.
  *
- * If credentials aren't configured, `fetch` throws a clear error so the
- * orchestrator can record Reddit as a coverage gap (P1) rather than crash.
+ * Reddit access in 2026 is a degradation ladder, and this adapter walks it:
+ *
+ *   1. **OAuth** (app-only client_credentials → search endpoint) when
+ *      REDDIT_CLIENT_ID/SECRET are configured. Self-service key registration
+ *      closed in Nov 2025 (Responsible Builder Policy); credentials issued
+ *      before then keep working, new ones need manual approval.
+ *   2. **Public RSS** (keyless) otherwise. Reddit's `.rss` listing/search
+ *      feeds predate the priced API surface and still work without auth —
+ *      unlike the public `.json` mirrors, which started returning 403 in May
+ *      2026. The feeds are live (same content as the site, newest-first) but
+ *      thinner: no score/comment counts, and they are rate-limited per IP,
+ *      so poll gently.
+ *   3. **Neither reachable** → `fetch` throws a clear error so the
+ *      orchestrator records Reddit as a coverage gap (P1) rather than crash.
  */
 
+import { parseFeed } from "@mikaelporttila/rss";
 import type { Item, SourcePort, TopicDefinition } from "../ports.ts";
-import { buildTopicQuery } from "./topic.ts";
 import { stableId } from "./normalize.ts";
 
 /** Shape of a Reddit listing child's `data` (subset we use). */
@@ -51,6 +62,71 @@ export function normalizeRedditPost(d: RedditPostData): Item | null {
   };
 }
 
+/** One entry from Reddit's public Atom feeds (parser-agnostic subset). */
+export interface RedditFeedEntry {
+  /** Atom id — Reddit uses the fullname, e.g. "t3_abc123". */
+  id?: string;
+  title?: string;
+  /** HTML body; Reddit appends a "submitted by /u/x [link] [comments]" footer. */
+  contentHtml?: string;
+  /** Permalink, e.g. https://www.reddit.com/r/sub/comments/abc123/slug/ */
+  link?: string;
+  /** Reddit formats it "/u/someuser". */
+  authorName?: string;
+  published?: Date;
+}
+
+function stripHtml(s: string): string {
+  return s.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Normalize an entry from the keyless `.rss` surface. Same provenance as the
+ * OAuth path (permalink, author, timestamp); engagement is empty because the
+ * feeds carry no score/comment counts — absent, not zero.
+ */
+export function normalizeRedditFeedEntry(e: RedditFeedEntry): Item | null {
+  const link = e.link;
+  // Fullname "t3_abc123" → "abc123", or recover the id from the permalink.
+  const sourceId = e.id?.replace(/^t\d+_/, "") ||
+    link?.match(/\/comments\/([a-z0-9]+)/i)?.[1];
+  if (!sourceId || !link) return null;
+
+  const body = e.contentHtml ? stripHtml(e.contentHtml) : "";
+  const text = [e.title?.trim(), body.replace(/submitted by\s+\/?u\/\S+.*$/i, "").trim()]
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
+
+  return {
+    id: stableId("reddit", sourceId),
+    source: "reddit",
+    source_id: sourceId,
+    author: e.authorName?.replace(/^\/?u\//, "") ?? null,
+    text,
+    url: link,
+    created_at: e.published ?? new Date(),
+    fetched_at: new Date(),
+    engagement: {},
+    parent_ref: null,
+    embedding: null,
+    raw: e as unknown as Record<string, unknown>,
+  };
+}
+
+/**
+ * Reddit search wants short keyword queries, not the natural-language topic
+ * description the embedder uses. OR the keywords/entities (quoting phrases);
+ * fall back to the description only when there is nothing else.
+ */
+export function redditSearchQuery(topic: TopicDefinition): string {
+  const terms = [...topic.keywords, ...topic.entities]
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .map((t) => (/\s/.test(t) ? `"${t}"` : t));
+  return terms.join(" OR ") || topic.description || topic.id;
+}
+
 export interface RedditCredentials {
   clientId: string;
   clientSecret: string;
@@ -78,10 +154,17 @@ export class RedditAdapter implements SourcePort {
   readonly name = "reddit" as const;
   readonly #creds: RedditCredentials | null;
   readonly #limit: number;
+  readonly #userAgent: string;
 
   constructor(opts: RedditOptions = {}) {
     this.#creds = opts.credentials ?? redditCredentialsFromEnv();
     this.#limit = opts.limit ?? 50;
+    this.#userAgent = this.#creds?.userAgent ?? "parallax-fix/0.1 (research)";
+  }
+
+  /** Which rung of the access ladder this process will use. */
+  mode(): "oauth" | "public-rss" {
+    return this.#creds ? "oauth" : "public-rss";
   }
 
   async #token(creds: RedditCredentials): Promise<string> {
@@ -91,7 +174,7 @@ export class RedditAdapter implements SourcePort {
       headers: {
         "authorization": `Basic ${basic}`,
         "content-type": "application/x-www-form-urlencoded",
-        "user-agent": creds.userAgent!,
+        "user-agent": this.#userAgent,
       },
       body: "grant_type=client_credentials",
     });
@@ -101,13 +184,10 @@ export class RedditAdapter implements SourcePort {
     return json.access_token;
   }
 
-  async *fetch(topic: TopicDefinition): AsyncIterable<Item> {
-    if (!this.#creds) {
-      throw new Error("REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET not configured");
-    }
-    const token = await this.#token(this.#creds);
+  async *#fetchOauth(creds: RedditCredentials, topic: TopicDefinition): AsyncIterable<Item> {
+    const token = await this.#token(creds);
     const params = new URLSearchParams({
-      q: buildTopicQuery(topic),
+      q: redditSearchQuery(topic),
       limit: String(this.#limit),
       sort: "new",
       type: "link",
@@ -115,7 +195,7 @@ export class RedditAdapter implements SourcePort {
     const res = await fetch(`https://oauth.reddit.com/search?${params}`, {
       headers: {
         "authorization": `Bearer ${token}`,
-        "user-agent": this.#creds.userAgent!,
+        "user-agent": this.#userAgent,
       },
     });
     if (!res.ok) throw new Error(`Reddit search ${res.status} ${res.statusText}`);
@@ -124,6 +204,45 @@ export class RedditAdapter implements SourcePort {
     for (const child of json.data?.children ?? []) {
       const item = normalizeRedditPost(child.data);
       if (item) yield item;
+    }
+  }
+
+  async *#fetchPublicRss(topic: TopicDefinition): AsyncIterable<Item> {
+    const params = new URLSearchParams({
+      q: redditSearchQuery(topic),
+      sort: "new",
+      limit: String(this.#limit),
+    });
+    const res = await fetch(`https://www.reddit.com/search.rss?${params}`, {
+      headers: { "user-agent": this.#userAgent },
+    });
+    if (res.status === 403 || res.status === 429) {
+      throw new Error(
+        `Reddit public RSS refused (${res.status}) — keyless feeds are rate-limited per IP; ` +
+          "back off, or configure REDDIT_CLIENT_ID/SECRET (pre-Nov-2025 OAuth creds still work)",
+      );
+    }
+    if (!res.ok) throw new Error(`Reddit public RSS ${res.status} ${res.statusText}`);
+
+    const feed = await parseFeed(await res.text());
+    for (const entry of feed.entries ?? []) {
+      const item = normalizeRedditFeedEntry({
+        id: entry.id,
+        title: entry.title?.value,
+        contentHtml: entry.content?.value ?? entry.description?.value,
+        link: entry.links?.[0]?.href,
+        authorName: entry.author?.name,
+        published: entry.published ?? entry.updated,
+      });
+      if (item) yield item;
+    }
+  }
+
+  async *fetch(topic: TopicDefinition): AsyncIterable<Item> {
+    if (this.#creds) {
+      yield* this.#fetchOauth(this.#creds, topic);
+    } else {
+      yield* this.#fetchPublicRss(topic);
     }
   }
 }

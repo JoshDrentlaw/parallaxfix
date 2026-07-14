@@ -60,6 +60,22 @@ implications:
   proxy. The proxy is the network-level control plane; this app's policy does not attempt to
   duplicate it with a host allowlist.
 
+### 3a. Inbound: the web UI
+
+`deno task serve` runs a local HTTP server (the web driver over the same pipeline). No new
+capability is involved — `--allow-net` already covers listening — but the listener is a new
+_surface_, so its defaults are conservative:
+
+- **Binds `127.0.0.1` by default.** Exposing it (`--host 0.0.0.0`) is an explicit operator choice;
+  there is no authentication layer yet, so until one exists treat the UI as single-operator and
+  front it with a reverse proxy + auth if it must leave localhost.
+- **Ingested content stays data in the browser too.** The API returns JSON only; the front end
+  renders every ingested string via `textContent` (never `innerHTML`) under a strict
+  `Content-Security-Policy` (no inline script, no external origins), and provenance hrefs are
+  scheme-checked to http(s). Prompt-injection containment (§5) extends to markup injection here.
+- The server exposes read/aggregate operations only (`gather`, `brief`, topic listing) — the same
+  no-write-paths-to-platforms guarantee as the CLI.
+
 ## 4. Secrets handling
 
 - Secrets are read from the environment only (`--allow-env`). They are **never** hard-coded, logged,

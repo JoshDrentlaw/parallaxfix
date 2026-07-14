@@ -1,7 +1,14 @@
 import { assert, assertEquals } from "@std/assert";
 import { type GdeltArticle, normalizeGdeltArticle } from "../src/ingestion/gdelt.ts";
-import { normalizeRedditPost, type RedditPostData } from "../src/ingestion/reddit.ts";
+import {
+  normalizeRedditFeedEntry,
+  normalizeRedditPost,
+  type RedditFeedEntry,
+  type RedditPostData,
+  redditSearchQuery,
+} from "../src/ingestion/reddit.ts";
 import { normalizeRssEntry } from "../src/ingestion/rss.ts";
+import { adHocTopic } from "../src/ingestion/topic.ts";
 
 Deno.test("GDELT: maps an article, parses seendate, requires a url", () => {
   const a: GdeltArticle = {
@@ -40,6 +47,53 @@ Deno.test("Reddit: maps a post, builds permalink, captures engagement", () => {
   assertEquals(item.engagement.score, 42);
   assertEquals(item.engagement.comments, 7);
   assertEquals(normalizeRedditPost({ id: "" } as RedditPostData), null);
+});
+
+Deno.test("Reddit RSS: maps a feed entry, strips fullname/footer, empty engagement", () => {
+  const e: RedditFeedEntry = {
+    id: "t3_abc123",
+    title: "Recall effort gains signatures",
+    contentHtml:
+      "<p>Organizers say they have <b>enough</b>.</p> submitted by <a>/u/someuser</a> <a>[link]</a> <a>[comments]</a>",
+    link: "https://www.reddit.com/r/Riverside/comments/abc123/recall/",
+    authorName: "/u/someuser",
+    published: new Date("2026-07-01T12:00:00.000Z"),
+  };
+  const item = normalizeRedditFeedEntry(e)!;
+  assertEquals(item.source, "reddit");
+  assertEquals(item.source_id, "abc123"); // fullname prefix stripped → same id as OAuth path
+  assertEquals(item.author, "someuser");
+  assertEquals(item.url, "https://www.reddit.com/r/Riverside/comments/abc123/recall/");
+  assert(item.text.includes("Recall effort") && item.text.includes("enough"));
+  assert(!item.text.includes("submitted by"), "feed footer boilerplate stripped");
+  assertEquals(item.engagement, {}); // feeds carry no scores — absent, not zero
+  assertEquals(item.created_at.toISOString(), "2026-07-01T12:00:00.000Z");
+});
+
+Deno.test("Reddit RSS: recovers the id from the permalink; rejects entries without both", () => {
+  const item = normalizeRedditFeedEntry({
+    title: "No atom id",
+    link: "https://www.reddit.com/r/x/comments/zz99/thing/",
+  })!;
+  assertEquals(item.source_id, "zz99");
+  assertEquals(normalizeRedditFeedEntry({ title: "no link", id: "t3_a" }), null);
+  assertEquals(normalizeRedditFeedEntry({ title: "nothing" }), null);
+});
+
+Deno.test("Reddit search query: ORs keywords/entities, quotes phrases, falls back to description", () => {
+  const topic = adHocTopic(["recall", "city council"]);
+  topic.entities = ["Riverside"];
+  assertEquals(redditSearchQuery(topic), 'recall OR "city council" OR Riverside');
+  assertEquals(
+    redditSearchQuery({
+      id: "t",
+      keywords: [],
+      entities: [],
+      description: "some story",
+      exclude: [],
+    }),
+    "some story",
+  );
 });
 
 Deno.test("RSS: maps an entry, strips HTML, uses feed title as author, requires a link", () => {

@@ -45,6 +45,10 @@ deno task start analyze --topic config/topics/riverside-recall.json -k 200
 # Briefing (Phase 4): cluster → label → claims → coverage → structured briefing
 deno task brief "riverside city council recall"
 deno task brief --topic config/topics/riverside-recall.json -k 200
+
+# Web UI (dark mode, same pipeline): gather + brief from the browser
+deno task serve                      # → http://127.0.0.1:8420
+deno task serve -- --port 9000       # localhost-only by default; SECURITY.md §3a before exposing
 ```
 
 ### Corpus prerequisites (Phase 1)
@@ -73,8 +77,8 @@ Phase 1 (merged): the **Corpus** — a Postgres + pgvector append-only store wit
 (`bge-small-en-v1.5`) and **semantic topic matching** (`ingest` → embed/store, `match` → ranked
 retrieval).
 
-Phase 2 (merged): more sources + **coverage**. **Reddit** (app-only OAuth, poll), **GDELT** (keyless
-news query), and **RSS** (per-topic outlet feeds) adapters behind `SourcePort`, plus the
+Phase 2 (merged): more sources + **coverage**. **Reddit** (see access ladder below), **GDELT**
+(keyless news query), and **RSS** (per-topic outlet feeds) adapters behind `SourcePort`, plus the
 `CoverageReport` (P1) — `gather` polls them, stores results, and prints what was queried, counts per
 source, and what it could NOT see (TikTok/Instagram are always-declared blind spots).
 
@@ -89,6 +93,26 @@ whether they converge on the same target, and how fast it's accelerating. This *
 blind-spot declaration (never replaces it): it's a measure of _attention_, not content, and links
 can be gamed, so it's surfaced as a lead, not proof. The parallax move — locating the unseen by the
 pull it exerts on the visible.
+
+### Reddit access in 2026 (the shrinking door)
+
+Reddit locked down hard: self-service OAuth registration closed under the Responsible Builder Policy
+(Nov 2025), and the keyless public `.json` mirrors started returning 403 (May 2026). The adapter
+walks a degradation ladder instead of going dark:
+
+1. **OAuth** (`REDDIT_CLIENT_ID`/`SECRET`) — credentials issued before the lockdown keep working;
+   new ones need manual approval from Reddit.
+2. **Public RSS** (keyless, automatic fallback) — Reddit's `.rss` search/listing feeds still work
+   without auth. Live content, same as the site, but thinner: no scores/comment counts, and
+   rate-limited per IP, so poll gently.
+3. **Neither** → the run reports Reddit as a coverage gap (P1), loudly, rather than pretending.
+
+### Web UI
+
+`deno task serve` starts the web driver over the exact same pipeline (`src/pipeline.ts`) the CLI
+uses: gather sources, generate a briefing, and read it with coverage foregrounded, narratives ranked
+by velocity, evidence-tagged claims, and provenance links on everything. Dark mode by default
+(toggle in the header). Binds localhost; see `SECURITY.md` §3a before exposing it.
 
 Phase 4 (in progress): the **Briefing** — the finale. `brief "<topic>"` reads the stored corpus,
 clusters it into narratives ranked by **velocity** (P5), labels them and extracts **evidence-tagged
