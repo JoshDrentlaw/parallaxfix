@@ -40,28 +40,32 @@
   // on nucklehead for this app; the enumerated form is preferred for legibility.
 
   "tasks": {
-    "start": "deno run --allow-net --allow-env --allow-read --allow-write --allow-sys --allow-ffi --allow-run src/main.ts",
-    "dev": "deno run --watch --allow-net --allow-env --allow-read --allow-write --allow-sys --allow-ffi --allow-run src/main.ts",
+    // --env-file=.env loads the local secrets file (ANTHROPIC_API_KEY,
+    // DATABASE_URL, ...) so `deno task start` works out of the box per the
+    // README quick start. Deno only warns (doesn't fail) if the file is
+    // absent, so this is safe in CI, where secrets arrive via job `env:` instead.
+    "start": "deno run --env-file=.env --allow-net --allow-env --allow-read --allow-write --allow-sys --allow-ffi --allow-run src/main.ts",
+    "dev": "deno run --watch --env-file=.env --allow-net --allow-env --allow-read --allow-write --allow-sys --allow-ffi --allow-run src/main.ts",
 
     // Corpus commands use the local embedder (transformers.js → ONNX), whose
     // native deps need a node_modules dir. Same capability set as `start`;
     // --node-modules-dir is an install/runtime setting, not a new grant.
-    "ingest": "deno run --node-modules-dir=auto --allow-net --allow-env --allow-read --allow-write --allow-sys --allow-ffi --allow-run src/main.ts ingest",
-    "match": "deno run --node-modules-dir=auto --allow-net --allow-env --allow-read --allow-write --allow-sys --allow-ffi --allow-run src/main.ts match",
+    "ingest": "deno run --node-modules-dir=auto --env-file=.env --allow-net --allow-env --allow-read --allow-write --allow-sys --allow-ffi --allow-run src/main.ts ingest",
+    "match": "deno run --node-modules-dir=auto --env-file=.env --allow-net --allow-env --allow-read --allow-write --allow-sys --allow-ffi --allow-run src/main.ts match",
 
     // The briefing reads the corpus (local embedder for retrieval) and may call
     // Claude for labels/claims/synthesis — same grant + the node_modules dir.
-    "brief": "deno run --node-modules-dir=auto --allow-net --allow-env --allow-read --allow-write --allow-sys --allow-ffi --allow-run src/main.ts brief",
+    "brief": "deno run --node-modules-dir=auto --env-file=.env --allow-net --allow-env --allow-read --allow-write --allow-sys --allow-ffi --allow-run src/main.ts brief",
 
     // The web UI drives the same pipeline over HTTP (localhost by default;
     // SECURITY.md §3a). Same grant: --allow-net covers the inbound listener.
-    "serve": "deno run --node-modules-dir=auto --allow-net --allow-env --allow-read --allow-write --allow-sys --allow-ffi --allow-run src/main.ts serve",
+    "serve": "deno run --node-modules-dir=auto --env-file=.env --allow-net --allow-env --allow-read --allow-write --allow-sys --allow-ffi --allow-run src/main.ts serve",
 
     // Dev-loop tasks. These need no runtime capabilities of their own.
     "check": "deno check src/main.ts",
     "fmt": "deno fmt",
     "lint": "deno lint",
-    "test": "deno test --allow-net --allow-env --allow-read --allow-write --allow-sys --allow-ffi --allow-run"
+    "test": "deno test --env-file=.env --allow-net --allow-env --allow-read --allow-write --allow-sys --allow-ffi --allow-run"
   },
 
   "fmt": {
