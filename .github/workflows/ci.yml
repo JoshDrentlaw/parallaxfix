@@ -2,8 +2,13 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, development]
   pull_request:
+
+# Serialize runs per ref so two pushes can't deploy into the same dir concurrently.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -52,3 +57,24 @@ jobs:
 
       - name: Test
         run: deno task test
+
+  # nucklehead is the development environment (private, Tailscale-only — see
+  # CLAUDE.md); it tracks `development`, not `main`. `main` is reserved for a
+  # future production Droplet deploy, which doesn't exist yet and has no
+  # runner, so it intentionally has no deploy job here.
+  deploy:
+    name: Deploy to nucklehead (development)
+    needs: check
+    if: github.ref == 'refs/heads/development' && github.event_name == 'push'
+    runs-on: self-hosted
+    steps:
+      - name: Pull latest and restart containers
+        run: |
+          cd /srv/data-collection/parallax-fix
+          git fetch origin
+          # Stash any local work (recoverable via `git stash list`) so reset --hard
+          # can't silently destroy it; -u keeps the gitignored .env untouched.
+          git stash push -u -m "pre-deploy $(date -Iseconds)" || true
+          git checkout -B development origin/development
+          git reset --hard origin/development
+          docker compose up --build -d
