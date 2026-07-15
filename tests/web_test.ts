@@ -72,6 +72,31 @@ Deno.test("web: /api/status reports config honestly, blind spots always declared
   assert(spots.includes("tiktok") && spots.includes("instagram"));
 });
 
+Deno.test("web: /api/status's bluesky_ingest defaults to disabled with no ingest service wired up", async () => {
+  const handler = createHandler({});
+  const res = await handler(get("/api/status"));
+  const s = await res.json();
+  assertEquals(s.bluesky_ingest.state, "disabled");
+  assertEquals(s.bluesky_ingest.topicsWatched, 0);
+});
+
+Deno.test("web: /api/status round-trips an injected ingest status unchanged", async () => {
+  const handler = createHandler({
+    ingestStatus: () => ({
+      state: "connected",
+      topicsWatched: 3,
+      totalItemsIngested: 42,
+      lastEventAt: null,
+      lastError: null,
+    }),
+  });
+  const res = await handler(get("/api/status"));
+  const s = await res.json();
+  assertEquals(s.bluesky_ingest.state, "connected");
+  assertEquals(s.bluesky_ingest.topicsWatched, 3);
+  assertEquals(s.bluesky_ingest.totalItemsIngested, 42);
+});
+
 Deno.test("web: /api/brief without a corpus is a clear 503, not a crash", async () => {
   const handler = createHandler({ databaseUrl: () => undefined });
   const res = await handler(post("/api/brief", { keywords: "recall" }));

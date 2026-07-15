@@ -128,6 +128,18 @@ export function matchesTopic(item: Item, topic: TopicDefinition): boolean {
 }
 
 /**
+ * Union match across every currently-watched topic — for a single shared feed
+ * (e.g. the Bluesky Jetstream firehose) filtering on behalf of several saved
+ * topics at once. Write-time filter only: corpus storage is topic-agnostic,
+ * and retrieval independently re-applies semantic search + each topic's own
+ * `exclude` list, so a permissive write-time net can't leak topic A's content
+ * into topic B's reads.
+ */
+export function matchesAnyTopic(item: Item, topics: TopicDefinition[]): boolean {
+  return topics.some((t) => matchesTopic(item, t));
+}
+
+/**
  * Hard negative filter: drop items hitting an `exclude` term. Applied after
  * semantic retrieval (Phase 1) where keyword *matching* is no longer required
  * but exclusions still cut noise. Case-insensitive substring match.

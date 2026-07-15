@@ -26,6 +26,19 @@ import {
 } from "../ingestion/topic.ts";
 import { type FeedValidationResult, validateRssFeed } from "../ingestion/rss.ts";
 import { DECLARED_BLIND_SPOTS } from "../briefing/coverage.ts";
+import {
+  BlueskyIngestService,
+  type BlueskyServiceDeps,
+  type IngestStatus,
+} from "../ingestion/bluesky-service.ts";
+
+const DISABLED_INGEST_STATUS: IngestStatus = {
+  state: "disabled",
+  topicsWatched: 0,
+  totalItemsIngested: 0,
+  lastEventAt: null,
+  lastError: null,
+};
 
 /** Injectable seams so tests (and demos) can run the server without Postgres. */
 export interface WebDeps {
@@ -34,6 +47,8 @@ export interface WebDeps {
   brief?: (topic: TopicDefinition, k: number, minSimilarity?: number) => Promise<Briefing>;
   /** Where saved topics live. Defaults to `TOPICS_DIR`; tests point this at a temp dir. */
   topicsDir?: string;
+  /** The always-on Bluesky ingest service's status, for /api/status. Defaults to "disabled". */
+  ingestStatus?: () => IngestStatus | null;
 }
 
 const STATIC_DIR = new URL("./static/", import.meta.url);
@@ -275,6 +290,7 @@ export function createHandler(deps: WebDeps = {}): (req: Request) => Promise<Res
     });
 
   const topicsDir = deps.topicsDir ?? TOPICS_DIR;
+  const ingestStatus = deps.ingestStatus ?? (() => null);
 
   return async (req: Request): Promise<Response> => {
     const { pathname, searchParams } = new URL(req.url);
@@ -297,6 +313,7 @@ export function createHandler(deps: WebDeps = {}): (req: Request) => Promise<Res
               llm_configured: Boolean(Deno.env.get("ANTHROPIC_API_KEY")),
               reddit_mode: Deno.env.get("REDDIT_CLIENT_ID") ? "oauth" : "public-rss",
               declared_blind_spots: DECLARED_BLIND_SPOTS,
+              bluesky_ingest: ingestStatus() ?? DISABLED_INGEST_STATUS,
             });
           case "/api/topics":
             return json(await listTopics(topicsDir));
@@ -388,17 +405,53 @@ export interface ServeOptions {
   hostname?: string;
   port?: number;
   deps?: WebDeps;
+  /** Test seam for the Bluesky ingest service's own dependencies (corpus/source/topics). */
+  ingestDeps?: BlueskyServiceDeps;
 }
 
 export function startServer(opts: ServeOptions = {}): Deno.HttpServer<Deno.NetAddr> {
   const hostname = opts.hostname ?? "127.0.0.1";
   const port = opts.port ?? 8420;
-  return Deno.serve({
+
+  // The always-on ingest service and the HTTP server share one lifetime:
+  // startServer is the single owner of both, so a container stop cleanly
+  // drains the Bluesky connection instead of killing it mid-batch.
+  const controller = new AbortController();
+  const databaseUrl = (opts.deps?.databaseUrl ?? (() => Deno.env.get("DATABASE_URL")))();
+  const ingestService = databaseUrl
+    ? new BlueskyIngestService({ databaseUrl, signal: controller.signal, deps: opts.ingestDeps })
+    : null;
+  ingestService?.start();
+
+  const handler = createHandler({
+    ...opts.deps,
+    ingestStatus: opts.deps?.ingestStatus ?? (() => ingestService?.status() ?? null),
+  });
+
+  const server = Deno.serve({
     hostname,
     port,
     onListen: ({ hostname, port }) => {
       console.log(`\nParallax Fix web UI → http://${hostname}:${port}`);
       console.log("  (localhost-only by default; see SECURITY.md §3a before exposing it)");
     },
-  }, createHandler(opts.deps));
+  }, handler);
+
+  // docker compose stop / a container recreate sends SIGTERM, not SIGINT, to
+  // PID 1 — without catching it, the process is killed mid-batch instead of
+  // shutting down cleanly.
+  let shuttingDown = false;
+  const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    Deno.removeSignalListener("SIGINT", shutdown);
+    Deno.removeSignalListener("SIGTERM", shutdown);
+    controller.abort();
+    await ingestService?.stop();
+    await server.shutdown();
+  };
+  Deno.addSignalListener("SIGINT", shutdown);
+  Deno.addSignalListener("SIGTERM", shutdown);
+
+  return server;
 }
