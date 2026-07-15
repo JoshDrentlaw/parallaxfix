@@ -45,6 +45,13 @@ services:
       - "127.0.0.1:8420:8420"
     volumes:
       - parallax_fix_models:/app/models
+      # Topics live as JSON files under config/topics/, written by the web
+      # UI's topic manager (src/ingestion/topic.ts) — without this volume
+      # they're baked into the image at build time and lost on every
+      # `docker compose up --build` (i.e. every deploy). Docker seeds the
+      # volume from the image's own config/topics/ (the committed example
+      # topic) the first time it's created.
+      - parallax_fix_topics:/app/config/topics
     depends_on:
       postgres:
         condition: service_healthy
@@ -52,3 +59,4 @@ services:
 volumes:
   parallax_fix_pg_data:
   parallax_fix_models:
+  parallax_fix_topics:

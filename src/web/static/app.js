@@ -65,6 +65,30 @@ function chip(state, label) {
   return el("span", { class: `chip ${state}` }, el("span", { class: "dot" }), label);
 }
 
+/**
+ * The always-on Bluesky ingest service makes one connection attempt per
+ * process lifetime and never retries (CLAUDE.md: it's a small, shrinking
+ * source — not worth reconnect/backoff engineering) — "stopped" just means
+ * it isn't running right now, not that anything is actively wrong.
+ */
+function blueskyChip(ingest) {
+  switch (ingest.state) {
+    case "connected":
+      return chip(
+        "on",
+        `bluesky: live (${ingest.topicsWatched} topic${ingest.topicsWatched === 1 ? "" : "s"})`,
+      );
+    case "connecting":
+      return chip("warn", "bluesky: connecting…");
+    case "idle":
+      return chip("warn", "bluesky: idle (no topics)");
+    case "stopped":
+      return chip("off", "bluesky: stopped (restart to reconnect)");
+    default:
+      return chip("off", "bluesky: disabled (no DATABASE_URL)");
+  }
+}
+
 async function loadStatus() {
   try {
     const s = await (await fetch("api/status")).json();
@@ -79,6 +103,7 @@ async function loadStatus() {
         s.reddit_mode === "oauth" ? "on" : "warn",
         s.reddit_mode === "oauth" ? "reddit: oauth" : "reddit: keyless rss",
       ),
+      blueskyChip(s.bluesky_ingest),
       chip("off", "blind: " + s.declared_blind_spots.map((b) => b.source).join(", ")),
     );
   } catch { /* status is cosmetic; the actions surface real errors */ }
@@ -647,6 +672,9 @@ function initTopicManager() {
 
 initTheme();
 loadStatus();
+// The Bluesky chip can move connecting → connected shortly after page load;
+// everything else in /api/status is effectively static per process lifetime.
+setInterval(loadStatus, 15_000);
 loadTopics();
 initTopicManager();
 initInfoChips();

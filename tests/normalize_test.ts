@@ -1,6 +1,6 @@
 import { assert, assertEquals } from "@std/assert";
 import { type JetstreamCommit, normalizeFeedPost, stableId } from "../src/ingestion/normalize.ts";
-import { adHocTopic, matchesTopic } from "../src/ingestion/topic.ts";
+import { adHocTopic, matchesAnyTopic, matchesTopic } from "../src/ingestion/topic.ts";
 
 function sampleCommit(overrides: Partial<JetstreamCommit["commit"]> = {}): JetstreamCommit {
   return {
@@ -73,4 +73,19 @@ Deno.test("matchesTopic: keywords, exclude wins, empty matches all", () => {
   assert(!matchesTopic(item, excluded));
 
   assert(matchesTopic(item, adHocTopic([]))); // no terms → firehose
+});
+
+Deno.test("matchesAnyTopic: matches if any watched topic matches, false for an empty list", () => {
+  const item = normalizeFeedPost(sampleCommit())!; // "Wildfire near Riverside spreading fast"
+
+  assertEquals(matchesAnyTopic(item, []), false);
+  assert(!matchesAnyTopic(item, [adHocTopic(["seattle"]), adHocTopic(["portland"])]));
+  // Matches the second of several watched topics only.
+  assert(matchesAnyTopic(item, [adHocTopic(["seattle"]), adHocTopic(["riverside"])]));
+
+  // Each topic's own exclude list stays scoped to itself — one topic's
+  // exclude can't suppress a match that came from a different topic.
+  const excludesWildfire = { ...adHocTopic(["riverside"]), exclude: ["wildfire"] };
+  assert(matchesAnyTopic(item, [excludesWildfire, adHocTopic(["riverside"])]));
+  assert(!matchesAnyTopic(item, [excludesWildfire]));
 });

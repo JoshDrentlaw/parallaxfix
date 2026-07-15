@@ -20,6 +20,14 @@ executable form is the permission flags on the `deno task` definitions in
 
 ## Quick start
 
+The CLI commands below (`listen`/`ingest`/`gather`/`match`/`brief`/`serve`) are manual, local dev
+tools — useful for eyeballing a topic's match rate or debugging an adapter, but nothing in
+production depends on anyone running them. `deno task serve` (the web UI) owns live ingest itself:
+it runs a single always-on Bluesky Jetstream connection watching every saved topic for the life of
+the process — see `src/ingestion/bluesky-service.ts` and the `bluesky` status chip in the UI header.
+Reddit/GDELT/RSS stay on-demand via the "Gather sources" button, since (unlike Jetstream) they're
+queryable indexes, not a live-only firehose.
+
 ```sh
 cp .env.example .env   # fill in keys as phases come online
 deno task start        # status: runtime config + coverage gaps
