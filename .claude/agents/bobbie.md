@@ -66,30 +66,32 @@ don't need to verify that the framework works. Test your code's behavior on top 
   `pgvector/pgvector:pg16` container), **never** the shared dev `DATABASE_URL`. These tests are
   gated with `Deno.test({ ignore: !DATABASE_URL, ... })` in the existing suite — follow that pattern
   so the rest of the suite still runs green for a contributor without local Postgres.
-- Tests that exercise a fake `SourcePort`/`CorpusPort`/`EmbeddingPort` instead of the real network or
-  database — see `tests/bluesky_service_test.ts`'s `FakeSource`/`FakeCorpus` (a controllable async
-  generator honoring the constructor's `AbortSignal`, and an in-memory corpus recording `append()`
-  calls) and `tests/corpus_test.ts`'s `FakeEmbedder` for the established idiom. Prefer this over a
-  real WebSocket/DB whenever the behavior under test is orchestration logic, not the adapter/store
-  itself.
+- Tests that exercise a fake `SourcePort`/`CorpusPort`/`EmbeddingPort` instead of the real network
+  or database — see `tests/bluesky_service_test.ts`'s `FakeSource`/`FakeCorpus` (a controllable
+  async generator honoring the constructor's `AbortSignal`, and an in-memory corpus recording
+  `append()` calls) and `tests/corpus_test.ts`'s `FakeEmbedder` for the established idiom. Prefer
+  this over a real WebSocket/DB whenever the behavior under test is orchestration logic, not the
+  adapter/store itself.
 - `src/web/server.ts`'s `WebDeps`/`ServeOptions.ingestDeps` are the injectable seams for testing the
   HTTP layer without Postgres — `createHandler({...})` directly, per `tests/web_test.ts`'s existing
   pattern (`get`/`post`/`put`/`del` request builders, `withFetch`/`withTopicsDir` helpers for
   stubbing `globalThis.fetch` and isolating topic files in a temp dir).
 
 **Browser-driven checks for `src/web/static/`** — there is currently **no committed automated test
-harness** for the frontend (no Jest, no Vitest, no Playwright test suite in the repo). `deno task
-check` runs `deno fmt --check` + `deno lint` + `deno check src/main.ts` — type-safety and lint only,
-not behavioral or visual tests. If you're asked to verify frontend behavior:
+harness** for the frontend (no Jest, no Vitest, no Playwright test suite in the repo).
+`deno task
+check` runs `deno fmt --check` + `deno lint` + `deno check src/main.ts` — type-safety and
+lint only, not behavioral or visual tests. If you're asked to verify frontend behavior:
 
-- Default to the same manual-verification pattern already used in this repo: `python3 -m http.server`
-  (or the real `deno task serve`) against `src/web/static/`, plus a throwaway Playwright script
-  (`playwright-core` npm-installed on demand, Chromium at `/opt/pw-browsers/chromium`) driving the
-  real page and asserting on rendered output — `document.documentElement.scrollWidth`/`scrollHeight`
-  for layout-overflow checks, `getBoundingClientRect()` for locating a specific offending element,
-  `page.evaluate()` to inject a realistic `Briefing` fixture the same way `runBrief()` does
-  (`tests/fixtures/briefing.ts`'s `sampleBriefing()` is the canonical shape to build from). This is
-  exploratory verification, not a committed regression test — say so.
+- Default to the same manual-verification pattern already used in this repo:
+  `python3 -m http.server` (or the real `deno task serve`) against `src/web/static/`, plus a
+  throwaway Playwright script (`playwright-core` npm-installed on demand, Chromium at
+  `/opt/pw-browsers/chromium`) driving the real page and asserting on rendered output —
+  `document.documentElement.scrollWidth`/`scrollHeight` for layout-overflow checks,
+  `getBoundingClientRect()` for locating a specific offending element, `page.evaluate()` to inject a
+  realistic `Briefing` fixture the same way `runBrief()` does (`tests/fixtures/briefing.ts`'s
+  `sampleBriefing()` is the canonical shape to build from). This is exploratory verification, not a
+  committed regression test — say so.
 - If the user wants durable, repeatable frontend tests, say plainly that no harness exists yet and
   ask whether standing one up is in scope — don't silently invent test infrastructure as a side
   effect of one bug fix.
