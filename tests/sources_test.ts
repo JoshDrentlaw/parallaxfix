@@ -190,6 +190,27 @@ Deno.test("RSS: maps an entry, strips HTML, uses feed title as author, requires 
   assertEquals(normalizeRssEntry({ title: "no link" }, "Outlet"), null);
 });
 
+Deno.test("RSS: prefers full content over the description teaser when a feed provides both", () => {
+  const item = normalizeRssEntry({
+    id: "guid-2",
+    title: "Council schedules recall hearing",
+    description: "The hearing is Thursday.",
+    content: "<p>The hearing is <b>Thursday</b> at 6pm, with public comment starting at 5:30.</p>",
+    link: "https://raincrossgazette.example/recall",
+  }, "Raincross Gazette")!;
+  assert(item.text.includes("public comment starting at 5:30"), "used the fuller content field");
+  assert(!item.text.includes("The hearing is Thursday."), "didn't also append the shorter teaser");
+});
+
+Deno.test("RSS: falls back to description when a feed has no content field", () => {
+  const item = normalizeRssEntry({
+    title: "Council schedules recall hearing",
+    description: "The hearing is Thursday.",
+    link: "https://raincrossgazette.example/recall",
+  }, "Raincross Gazette")!;
+  assert(item.text.includes("The hearing is Thursday."));
+});
+
 Deno.test("Bluesky search: maps a searchPosts result, prefers handle, captures engagement", () => {
   const p: BskySearchPost = {
     uri: "at://did:plc:abc123/app.bsky.feed.post/xyz789",
