@@ -15,6 +15,17 @@ export interface RssEntryLike {
   id?: string;
   title?: string;
   description?: string;
+  /**
+   * Full article body, when the feed provides one (RSS `content:encoded` /
+   * Atom `<content>`) — distinct from `description`, which by RSS/Atom
+   * convention is a short teaser. Preferred over `description` when present:
+   * many publishers (NPR, ProPublica, and plenty of smaller/nonprofit
+   * newsrooms among them) syndicate the full piece here, and using only the
+   * teaser was leaving that on the table for no reason — not every feed
+   * offers it (most paywalled outlets keep this field empty on purpose), so
+   * this is a strict improvement, never a regression.
+   */
+  content?: string;
   link?: string;
   published?: Date;
 }
@@ -27,7 +38,8 @@ export function normalizeRssEntry(e: RssEntryLike, feedTitle: string): Item | nu
   const url = e.link;
   if (!url) return null;
   const sourceId = e.id || url;
-  const text = [e.title?.trim(), e.description ? stripHtml(e.description) : ""]
+  const body = e.content || e.description;
+  const text = [e.title?.trim(), body ? stripHtml(body) : ""]
     .filter(Boolean)
     .join("\n\n")
     .trim();
@@ -169,6 +181,7 @@ export class RssAdapter implements SourcePort {
           id: entry.id,
           title: entry.title?.value,
           description: entry.description?.value,
+          content: entry.content?.value,
           link: entry.links?.[0]?.href,
           published: entry.published ?? entry.updated,
         }, feedTitle);
