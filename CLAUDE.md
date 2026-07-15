@@ -98,3 +98,35 @@ not against:
   target, not by rewriting shared history.
 - Keep commits self-contained and well-described — rebase preserves each one on the target branch,
   so every message stands on its own in the permanent history.
+
+## Agent roster (`.claude/agents/`)
+
+A set of named, single-purpose subagents (Amos, Avasarala, Bobbie, Edna, Leslie, McGill, Miller +
+Miller-Haiku + Miller-Opus, Naomi, Wednesday) ported 2026-07-15 from Dead Reckoning, which itself
+adapted them from a sibling project (PaidWrite). Most needed no changes — their frameworks (Miller's
+doors-and-corners investigation, Naomi's dependency mapping, Edna's hero/cape UX review, Amos's
+defensive-only code access, etc.) are already domain-agnostic, confirmed by grepping the source
+files for Dead Reckoning/PaidWrite-specific references before copying them verbatim. Two were
+retargeted:
+
+- **Bobbie** (test writer) — her "what you write" section referenced Dead Reckoning's
+  `src/portfolio/` and Fresh/Preact `web/` structure; rewritten for this repo's actual setup
+  (`Deno.test` suites under `tests/`, run via `deno task test`; `PgCorpus` integration tests gated
+  on `DATABASE_URL` against a throwaway Postgres, never the shared one; the
+  `FakeSource`/`FakeCorpus`/`FakeEmbedder` fake-port idiom already established in
+  `tests/bluesky_service_test.ts`/`tests/corpus_test.ts`) and an honest note that `src/web/static/`
+  has **no committed automated test harness** (`deno task check` is fmt+lint+check only, not
+  behavioral tests) — manual Playwright-driven verification (a throwaway script against a static
+  file server, real Chromium at `/opt/pw-browsers/chromium`) is the current practice, not a standing
+  framework.
+- **McGill** (was: Dead Reckoning's own point-4/epistemic-principles conformance reviewer) —
+  retargeted into a conformance reviewer for **this app's own Invariants list** above (coverage-gap
+  honesty, no-verdict discipline, provenance-on-everything, evidence-type tagging, velocity-not-
+  volume ranking, untrusted-ingested-content handling). Same binary-conformance, cite-the-provision,
+  severity-classified review style Dead Reckoning's version uses, applied to this repo's own charter
+  — a natural fit given both apps' Invariants sections share direct lineage (this app's corpus stack
+  was reused wholesale by Dead Reckoning; several invariant bullets are worded identically in both).
+
+Edna was used directly on this repo the same day the roster was ported — the mobile-UI and
+briefing-rendering UX findings that motivated porting the roster in the first place came from her
+first real review, not a hypothetical.
