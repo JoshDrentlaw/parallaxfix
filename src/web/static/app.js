@@ -40,9 +40,18 @@ function safeLink(url, text, cls) {
   });
 }
 
+// Parses via Date rather than slicing/replacing on an assumed fixed ISO
+// shape — a string that isn't perfectly formatted (e.g. one containing an
+// early literal "T") used to silently mangle into the wrong text instead of
+// failing loudly, which matters here since these are provenance timestamps
+// a reader may be verifying a claim against.
 function fmtTime(iso) {
   if (!iso) return "?";
-  return String(iso).slice(0, 16).replace("T", " ") + "Z";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "?";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ` +
+    `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}Z`;
 }
 
 // ── theme (dark to start; the toggle is the override) ──────────────────────
@@ -119,6 +128,9 @@ async function loadTopics(selectId) {
     for (const t of topics) select.append(el("option", { value: t.id, text: t.id }));
   } catch { /* no saved topics is fine */ }
   select.value = [...select.options].some((o) => o.value === prior) ? prior : "";
+  // select.options[0] is the always-present "— ad hoc —" placeholder, so
+  // length 1 means zero real saved topics.
+  $("#topic-select-hint").hidden = select.options.length > 1;
 }
 
 // ── renderers (coverage first, always — P1) ────────────────────────────────
@@ -195,12 +207,12 @@ function provenanceLine(e) {
 }
 
 function renderNarrative(n, i, provenance) {
-  const card = el("article", { class: "card narrative" });
+  const card = el("article", { class: "card narrative", id: `narrative-${n.cluster_id}` });
   const head = el(
     "div",
     { class: "narrative-head" },
     el("span", { class: "rank", text: `#${i + 1}` }),
-    el("span", {
+    el("h3", {
       class: n.label ? "label" : "label unlabeled",
       text: n.label || "(unlabeled — set ANTHROPIC_API_KEY for labels)",
     }),
@@ -214,10 +226,23 @@ function renderNarrative(n, i, provenance) {
   );
   card.append(head);
 
+  // Evidence (exemplars + claims) collapses by default past the first
+  // couple narratives — the head above stays outside this <details> so
+  // it's always visible, giving the ToC and heading-based screen-reader
+  // navigation something real to land on even when collapsed.
+  const evidence = el("details", { class: "narrative-evidence" });
+  if (i < 2) evidence.open = true;
+  evidence.append(
+    el("summary", {
+      text:
+        `Evidence — ${n.representative_item_ids.length} exemplar(s), ${n.claims.length} claim(s)`,
+    }),
+  );
+
   for (const id of n.representative_item_ids) {
     const e = provenance[id];
     if (!e) continue;
-    card.append(
+    evidence.append(
       el(
         "div",
         { class: "exemplar" },
@@ -243,7 +268,7 @@ function renderNarrative(n, i, provenance) {
             class: `badge ${c.evidence_type}`,
             text: c.evidence_type.replace("_", " "),
           }),
-          el("span", { text: c.text }),
+          el("span", { class: "text", text: c.text }),
           el("span", {
             class: "meta",
             text: `${c.supporting_item_ids.length} src` +
@@ -253,8 +278,9 @@ function renderNarrative(n, i, provenance) {
         ),
       );
     }
-    card.append(claims);
+    evidence.append(claims);
   }
+  card.append(evidence);
   return card;
 }
 
@@ -270,6 +296,25 @@ function renderBriefing(b) {
       }`,
     ),
   );
+
+  // A jump list, shown only when there's more than one narrative to jump
+  // between — otherwise it's dead weight above the fold.
+  if (b.narratives.length > 1) {
+    const list = el("ol");
+    b.narratives.forEach((n, i) => {
+      list.append(
+        el(
+          "li",
+          {},
+          el("a", {
+            href: `#narrative-${n.cluster_id}`,
+            text: n.label || `Narrative #${i + 1}`,
+          }),
+        ),
+      );
+    });
+    out.push(el("nav", { class: "narrative-toc", "aria-label": "Jump to narrative" }, list));
+  }
 
   out.push(renderCoverage(b.coverage));
 
@@ -289,7 +334,8 @@ function renderBriefing(b) {
   out.push(
     el("h2", {
       class: "section-title",
-      text: "Narratives — ranked by velocity (rate of change), not volume",
+      text: "Narratives — ranked by velocity (rate of change, not volume); " +
+        "relevance (0–1) is topic-match strength",
     }),
   );
   if (b.narratives.length === 0) {
@@ -356,6 +402,15 @@ function clearOutput() {
   $("#results").replaceChildren();
 }
 
+// #results has tabindex="-1" (not otherwise focusable, but a valid
+// programmatic focus target) so a screen-reader user isn't left in total
+// silence after a run — the standard "route change" focus-management
+// pattern in place of a giant aria-live region trying to announce an
+// entire briefing's worth of new content at once.
+function focusResults() {
+  $("#results").focus();
+}
+
 async function runGather() {
   clearOutput();
   setBusy("gathering Reddit + GDELT + RSS into the corpus…");
@@ -368,6 +423,7 @@ async function runGather() {
       }),
       renderCoverage(coverage),
     );
+    focusResults();
   } catch (err) {
     showError(err);
   } finally {
@@ -381,6 +437,7 @@ async function runBrief() {
   try {
     const briefing = await post("api/brief", requestBody());
     $("#results").replaceChildren(...renderBriefing(briefing));
+    focusResults();
   } catch (err) {
     showError(err);
   } finally {

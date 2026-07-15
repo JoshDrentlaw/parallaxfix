@@ -9,7 +9,10 @@
   --text: #dbe3f4;
   --muted: #8b96b0;
   --accent: #7fb0ff;
-  --accent-strong: #3d7bfd;
+  /* #3d7bfd (white text) measured 3.85:1 — below WCAG AA's 4.5:1 for the
+     "Generate briefing" button, the app's single most important action, in
+     the theme it ships with by default. This clears 4.94:1. */
+  --accent-strong: #3a6bd6;
   --ok: #46b881;
   --warn: #e0b454;
   --bad: #e2646e;
@@ -30,11 +33,15 @@
   --accent: #2b62d9;
   --accent-strong: #2b62d9;
   --ok: #1e8a5c;
-  --warn: #a3781a;
+  /* #a3781a measured 3.99:1 against the white surface — below WCAG AA's
+     4.5:1, on the "opinion" evidence badge and blind-spot signal text.
+     This clears 4.82:1. Dark theme's equivalent already clears 9:1+, no
+     change needed there. */
+  --warn: #916c15;
   --bad: #bb3a45;
   --ev-primary: #1e8a5c;
   --ev-reported: #2b62d9;
-  --ev-opinion: #a3781a;
+  --ev-opinion: #916c15;
   --ev-unsourced: #5d6880;
   color-scheme: light;
 }
@@ -153,7 +160,8 @@ select {
 }
 input:focus,
 select:focus,
-button:focus-visible {
+button:focus-visible,
+#results:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
@@ -203,6 +211,11 @@ button:disabled {
   color: var(--muted);
   font-size: 0.8rem;
   margin: 0.8rem 0 0;
+}
+.hint-inline {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-style: italic;
 }
 code {
   background: var(--surface-2);
@@ -348,6 +361,7 @@ code {
   font-weight: 700;
 }
 .narrative-head .label {
+  margin: 0;
   font-weight: 600;
   font-size: 1.02rem;
 }
@@ -356,11 +370,16 @@ code {
   font-weight: 400;
   font-style: italic;
 }
+/* No white-space: nowrap — the concatenated velocity/relevance/count/
+   first-seen string measured 400+px wide on its own at 375px, forcing a
+   page-wide horizontal overflow. flex-wrap on .narrative-head (above)
+   only lets this whole span drop to its own line; it still needs to be
+   able to wrap internally once there. */
 .narrative-meta {
   color: var(--muted);
   font-size: 0.78rem;
   margin-left: auto;
-  white-space: nowrap;
+  min-width: 0;
 }
 .velocity {
   color: var(--accent);
@@ -372,6 +391,53 @@ code {
 }
 .relevance::before {
   content: "· ";
+}
+
+/* ── narrative table of contents ─────────────────────────────────────────
+   Shown only when there's more than one narrative — a long briefing (the
+   app's own k=200 default implies real runs can produce well more than the
+   6 narratives a modest fixture already hit 5530px of mobile scroll with)
+   had no way to jump between them, sighted or not. */
+.narrative-toc {
+  margin: 0.6rem 0 0;
+}
+.narrative-toc ol {
+  margin: 0.4rem 0 0;
+  padding-left: 1.3rem;
+  font-size: 0.85rem;
+}
+.narrative-toc li {
+  margin: 0.2rem 0;
+}
+.narrative-toc a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.narrative-toc a:hover {
+  text-decoration: underline;
+}
+
+/* Evidence (exemplars + claims) collapses by default past the first couple
+   narratives, so a long briefing doesn't force 5000+px of scroll just to
+   see every narrative's headline. The head (rank/label/meta) stays outside
+   this <details>, always visible, so the ToC above always has somewhere
+   real to jump to. */
+.narrative-evidence summary {
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: var(--muted);
+  list-style: none;
+  margin-top: 0.5rem;
+}
+.narrative-evidence summary::-webkit-details-marker {
+  display: none;
+}
+.narrative-evidence summary::before {
+  content: "▸ ";
+  display: inline-block;
+}
+.narrative-evidence[open] summary::before {
+  content: "▾ ";
 }
 
 .exemplar {
@@ -405,17 +471,25 @@ code {
 .claims {
   margin-top: 0.8rem;
 }
+/* flex-wrap + no white-space:nowrap on .meta — a real verify_hint (e.g.
+   "cross-check against the official county registrar's records") measured
+   846px wide unbreaking on its own, forcing document.scrollWidth past
+   1000px at a 375px viewport. */
 .claim {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.55rem;
   align-items: baseline;
   padding: 0.28rem 0;
   font-size: 0.9rem;
 }
+.claim .text {
+  min-width: 0;
+}
 .claim .meta {
   color: var(--muted);
   font-size: 0.78rem;
-  white-space: nowrap;
+  min-width: 0;
 }
 .claim .links {
   font-size: 0.78rem;
