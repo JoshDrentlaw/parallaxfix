@@ -696,6 +696,52 @@ code {
   font-size: 0.82rem;
 }
 
+/* ── home view (Track A #6) ───────────────────────────────────────────── */
+
+.home-view-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.home-view-link {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.6rem;
+  text-align: left;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
+  border-radius: 8px;
+  padding: 0.55rem 0.8rem;
+  font: inherit;
+  color: var(--text);
+  cursor: pointer;
+}
+.home-view-link.hot {
+  border-left-color: var(--accent);
+}
+.home-view-link.quiet {
+  border-left-color: var(--border);
+}
+.home-view-link .home-view-topic {
+  font-weight: 700;
+}
+.home-view-link .home-view-summary {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.home-view-link .home-view-time {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
 .tm-tabs {
   display: flex;
   gap: 0.5rem;
