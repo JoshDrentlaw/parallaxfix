@@ -493,6 +493,34 @@ async function listLatestBriefings(databaseUrl: string): Promise<Response> {
 }
 
 /**
+ * POST /api/topics/:id/facts/draft — auto-draft candidate background facts
+ * via Claude + web search (Track B, auto-draft). Draft-and-approve only:
+ * this never persists anything — the client reviews each candidate and, if
+ * approved, sends it through the same create-fact flow the manual-curation
+ * UI uses (POST /api/topics/:id/facts). A wrong background fact is worse
+ * than a missing one, so nothing here auto-publishes.
+ */
+async function draftTopicFacts(id: string, topicsDir: string): Promise<Response> {
+  if (!Deno.env.get("ANTHROPIC_API_KEY")) {
+    return errorJson(503, "ANTHROPIC_API_KEY is not set — auto-draft needs the Claude API");
+  }
+  let topic: TopicDefinition;
+  try {
+    topic = await loadTopic(topicFilePath(id, topicsDir));
+  } catch {
+    return errorJson(404, `no saved topic "${id}" in ${topicsDir}/`);
+  }
+  try {
+    const { AnthropicReferenceFacts } = await import("../facts/reference.ts");
+    const drafts = await new AnthropicReferenceFacts().draft(topic);
+    return json(drafts);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    return errorJson(502, `draft failed: ${reason}`);
+  }
+}
+
+/**
  * Build the request handler. Dependencies default to the real pipeline
  * (imported lazily so the server starts fast and tests never touch Postgres).
  */
@@ -582,6 +610,12 @@ export function createHandler(deps: WebDeps = {}): (req: Request) => Promise<Res
           if (!url) return errorJson(400, "url query parameter is required");
           return await removeFeed(id, url, topicsDir);
         }
+      }
+
+      // Track B auto-draft: LLM-drafted candidate facts, never persisted.
+      const factsDraftMatch = pathname.match(/^\/api\/topics\/([^/]+)\/facts\/draft$/);
+      if (factsDraftMatch && req.method === "POST") {
+        return await draftTopicFacts(topicIdFromPath(factsDraftMatch[1]), topicsDir);
       }
 
       // Track B: background facts + tags attached to a topic. Postgres-backed
