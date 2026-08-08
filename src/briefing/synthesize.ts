@@ -139,6 +139,9 @@ export function assembleBriefing(
     overview: null,
     total_items: totalItems,
     total_claims: totalClaims,
+    // Populated by the caller (pipeline.ts) from FactStore, which needs a DB
+    // connection this pure assembly function deliberately doesn't have.
+    background_facts: [],
   };
 }
 
@@ -238,6 +241,20 @@ export function renderBriefing(b: Briefing): string {
     out.push(b.overview);
   } else {
     out.push("(no synthesis prose — set ANTHROPIC_API_KEY to generate it; structure follows)");
+  }
+
+  // Background — general context for the topic's subject matter, independent
+  // of this run's narratives (Track B). Kept structurally separate from
+  // claims: it's curated context, not something asserted in the discourse.
+  if (b.background_facts.length) {
+    out.push("");
+    out.push("── Background (general context, not specific to this run) ──");
+    for (const f of b.background_facts) {
+      out.push(`  • ${f.text}`);
+      out.push(
+        `    ↳ ${f.source_name} (as of ${f.as_of.toISOString().slice(0, 10)}) — ${f.source_url}`,
+      );
+    }
   }
 
   // P5: narratives by velocity.

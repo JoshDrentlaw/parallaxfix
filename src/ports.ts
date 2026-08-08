@@ -230,6 +230,52 @@ export interface Briefing {
   overview: string | null;
   total_items: number;
   total_claims: number;
+  /**
+   * General context for this topic's subject matter, independent of this
+   * run's narratives — rendered as its own "Background" section so it's
+   * structurally impossible to confuse with an in-corpus claim. Empty when
+   * no facts are attached to this topic (including every ad hoc topic,
+   * which has nothing to attach to).
+   */
+  background_facts: BackgroundFact[];
+}
+
+/**
+ * General context about a topic's subject matter — independent of any
+ * specific narrative in the corpus (e.g. "hyperscale data centers run
+ * ~528,000 gal/day"), as opposed to a `Claim`, which is a discrete assertion
+ * pulled from ingested discourse. A fact is a durable, standalone entity;
+ * which topics it's relevant to is a many-to-many attachment, not a field on
+ * the fact itself, so the same fact can serve any topic that wants it
+ * without duplication (see `TopicBackgroundFact`).
+ */
+export interface BackgroundFact {
+  id: string;
+  text: string;
+  source_name: string;
+  source_url: string;
+  /** When this was last verified against the source. */
+  as_of: Date;
+}
+
+/** Many-to-many join: a fact attached to a topic. */
+export interface TopicBackgroundFact {
+  topic_id: string;
+  fact_id: string;
+  attached_at: Date;
+}
+
+/**
+ * Controlled vocabulary for categorizing facts and topics. A tag must exist
+ * as a row before anything can be tagged with it — applying a tag is a
+ * lookup, not a typo. `slug` is the canonical, unique, kebab-case form;
+ * `name` is display-only.
+ */
+export interface Tag {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
 }
 
 export interface LLMPort {

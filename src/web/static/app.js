@@ -399,6 +399,28 @@ function renderBriefing(b) {
   );
   out.push(overview);
 
+  // Background (Track B): general context for the topic's subject matter,
+  // independent of this run's narratives — kept structurally separate from
+  // claims, which are pulled from the discourse and may be wrong.
+  if (b.background_facts.length) {
+    const background = el("section", { class: "card background" });
+    background.append(
+      el("h2", {
+        class: "section-title",
+        text: "Background — general context, not specific to this run",
+      }),
+    );
+    for (const f of b.background_facts) {
+      const item = el("div", { class: "background-fact" });
+      item.append(el("p", { class: "text", text: f.text }));
+      const meta = el("p", { class: "meta" }, `${f.source_name} · as of ${fmtTime(f.as_of)} · `);
+      meta.append(safeLink(f.source_url, "source ↗"));
+      item.append(meta);
+      background.append(item);
+    }
+    out.push(background);
+  }
+
   out.push(
     el("h2", {
       class: "section-title",
@@ -649,6 +671,8 @@ async function loadTopicForEdit(id) {
     setStatus($("#tm-edit-status"), "");
     hint.hidden = true;
     form.hidden = false;
+    loadTopicTags(id);
+    loadTopicFacts(id);
   } catch {
     form.hidden = true;
     hint.hidden = false;
@@ -709,6 +733,228 @@ async function removeEditFeed(id, url) {
       `api/topics/${encodeURIComponent(id)}/feeds?url=${encodeURIComponent(url)}`,
     );
     renderFeedList($("#tm-edit-feed-list"), topic.feeds, (u) => removeEditFeed(id, u));
+  } catch (err) {
+    setStatus($("#tm-edit-status"), err.message, false);
+  }
+}
+
+// ── Track B: tags + background facts (topic manager) ───────────────────────
+// Postgres-backed (DATABASE_URL) like gather/brief — a fetch failure here
+// (most commonly "no DATABASE_URL configured") degrades to an inline notice
+// rather than breaking the rest of the topic manager.
+
+function removableListItem(label, title, onRemove) {
+  const li = el("li", {}, el("span", { class: "feed-url", text: label }));
+  if (onRemove) {
+    const btn = el("button", { type: "button", text: "×", title });
+    btn.addEventListener("click", onRemove);
+    li.append(btn);
+  }
+  return li;
+}
+
+function renderTagListUI(ul, tags, onRemove) {
+  if (!tags || tags.length === 0) {
+    ul.replaceChildren(el("li", { class: "empty", text: "no tags attached" }));
+    return;
+  }
+  ul.replaceChildren(
+    ...tags.map((t) => removableListItem(t.name, `remove tag ${t.name}`, () => onRemove(t.id))),
+  );
+}
+
+function factListItem(fact, onRemove) {
+  const li = el(
+    "li",
+    { class: "fact-item" },
+    el(
+      "div",
+      { class: "fact-item-body" },
+      el("p", { class: "fact-text", text: fact.text }),
+      el("p", {
+        class: "fact-meta",
+        text: `${fact.source_name} · as of ${fact.as_of.slice(0, 10)}`,
+      }),
+    ),
+  );
+  if (onRemove) {
+    const btn = el("button", { type: "button", text: "×", title: "detach this fact" });
+    btn.addEventListener("click", onRemove);
+    li.append(btn);
+  }
+  return li;
+}
+
+function renderFactListUI(ul, facts, onRemove) {
+  if (!facts || facts.length === 0) {
+    ul.replaceChildren(el("li", { class: "empty", text: "no background facts attached" }));
+    return;
+  }
+  ul.replaceChildren(...facts.map((f) => factListItem(f, () => onRemove(f.id))));
+}
+
+/** Populate the "attach existing tag" <select> from the full tag vocabulary. */
+async function loadAllTags() {
+  const select = $("#tm-edit-tag-select");
+  const prior = select.value;
+  select.replaceChildren(el("option", { value: "", text: "— choose a tag —" }));
+  try {
+    const tags = await (await fetch("api/tags")).json();
+    for (const t of tags) select.append(el("option", { value: t.id, text: t.name }));
+  } catch { /* Postgres not configured — the select just stays empty */ }
+  select.value = [...select.options].some((o) => o.value === prior) ? prior : "";
+}
+
+async function loadTopicTags(id) {
+  const ul = $("#tm-edit-tag-list");
+  try {
+    const tags = await (await fetch(`api/topics/${encodeURIComponent(id)}/tags`)).json();
+    renderTagListUI(ul, tags, (tagId) => removeEditTag(id, tagId));
+  } catch {
+    ul.replaceChildren(el("li", { class: "empty", text: "tags unavailable — set DATABASE_URL" }));
+  }
+  await loadAllTags();
+}
+
+async function attachExistingTag() {
+  const id = $("#topic-select").value;
+  const select = $("#tm-edit-tag-select");
+  const tagId = select.value;
+  if (!id || !tagId) return;
+  try {
+    await post(`api/topics/${encodeURIComponent(id)}/tags`, { tagId });
+    select.value = "";
+    await loadTopicTags(id);
+  } catch (err) {
+    setStatus($("#tm-edit-status"), err.message, false);
+  }
+}
+
+async function createAndAttachTag() {
+  const id = $("#topic-select").value;
+  if (!id) return;
+  const nameInput = $("#tm-edit-new-tag-name");
+  const descInput = $("#tm-edit-new-tag-description");
+  const name = nameInput.value.trim();
+  if (!name) return;
+  try {
+    await post(`api/topics/${encodeURIComponent(id)}/tags`, {
+      name,
+      description: descInput.value.trim() || undefined,
+    });
+    nameInput.value = "";
+    descInput.value = "";
+    await loadTopicTags(id);
+  } catch (err) {
+    setStatus($("#tm-edit-status"), err.message, false);
+  }
+}
+
+async function removeEditTag(id, tagId) {
+  try {
+    await del(`api/topics/${encodeURIComponent(id)}/tags?tagId=${encodeURIComponent(tagId)}`);
+    await loadTopicTags(id);
+  } catch (err) {
+    setStatus($("#tm-edit-status"), err.message, false);
+  }
+}
+
+async function loadTopicFacts(id) {
+  const ul = $("#tm-edit-fact-list");
+  try {
+    const facts = await (await fetch(`api/topics/${encodeURIComponent(id)}/facts`)).json();
+    renderFactListUI(ul, facts, (factId) => removeEditFact(id, factId));
+  } catch {
+    ul.replaceChildren(el("li", { class: "empty", text: "facts unavailable — set DATABASE_URL" }));
+  }
+  await loadFactSuggestions(id);
+}
+
+/** Facts sharing a tag with this topic that aren't attached yet — a one-click attach. */
+async function loadFactSuggestions(id) {
+  const box = $("#tm-edit-fact-suggestions");
+  try {
+    const suggestions = await (
+      await fetch(`api/topics/${encodeURIComponent(id)}/fact-suggestions`)
+    ).json();
+    if (!suggestions.length) {
+      box.replaceChildren();
+      return;
+    }
+    const list = el("ul", { class: "fact-list" });
+    for (const f of suggestions) {
+      const li = el(
+        "li",
+        { class: "fact-item" },
+        el(
+          "div",
+          { class: "fact-item-body" },
+          el("p", { class: "fact-text", text: f.text }),
+          el("p", {
+            class: "fact-meta",
+            text: `${f.source_name} · as of ${f.as_of.slice(0, 10)}`,
+          }),
+        ),
+      );
+      const btn = el("button", { type: "button", text: "+ attach" });
+      btn.addEventListener("click", () => attachSuggestedFact(id, f.id));
+      li.append(btn);
+      list.append(li);
+    }
+    box.replaceChildren(
+      el("p", { class: "tm-subtitle", text: "Suggested (shares a tag with this topic)" }),
+      list,
+    );
+  } catch {
+    box.replaceChildren();
+  }
+}
+
+async function attachSuggestedFact(id, factId) {
+  try {
+    await post(`api/topics/${encodeURIComponent(id)}/facts`, { factId });
+    await loadTopicFacts(id);
+  } catch (err) {
+    setStatus($("#tm-edit-status"), err.message, false);
+  }
+}
+
+async function addBackgroundFact() {
+  const id = $("#topic-select").value;
+  if (!id) return;
+  const result = $("#tm-edit-fact-result");
+  const text = $("#tm-edit-fact-text").value.trim();
+  const sourceName = $("#tm-edit-fact-source-name").value.trim();
+  const sourceUrl = $("#tm-edit-fact-source-url").value.trim();
+  const asOf = $("#tm-edit-fact-as-of").value;
+  if (!text || !sourceName || !sourceUrl) {
+    setStatus(result, "text, source name, and source URL are all required", false);
+    return;
+  }
+  try {
+    await post(`api/topics/${encodeURIComponent(id)}/facts`, {
+      text,
+      source_name: sourceName,
+      source_url: sourceUrl,
+      as_of: asOf || undefined,
+    });
+    for (
+      const fieldId of ["tm-edit-fact-text", "tm-edit-fact-source-name", "tm-edit-fact-source-url"]
+    ) {
+      $(`#${fieldId}`).value = "";
+    }
+    $("#tm-edit-fact-as-of").value = "";
+    setStatus(result, "added", true);
+    await loadTopicFacts(id);
+  } catch (err) {
+    setStatus(result, err.message, false);
+  }
+}
+
+async function removeEditFact(id, factId) {
+  try {
+    await del(`api/topics/${encodeURIComponent(id)}/facts?factId=${encodeURIComponent(factId)}`);
+    await loadTopicFacts(id);
   } catch (err) {
     setStatus($("#tm-edit-status"), err.message, false);
   }
@@ -775,6 +1021,9 @@ function initTopicManager() {
   $("#tm-edit-feed-add").addEventListener("click", addEditFeed);
   $("#tm-edit-save").addEventListener("click", saveEditedTopic);
   $("#tm-edit-delete").addEventListener("click", deleteEditedTopic);
+  $("#tm-edit-tag-attach").addEventListener("click", attachExistingTag);
+  $("#tm-edit-new-tag-create").addEventListener("click", createAndAttachTag);
+  $("#tm-edit-fact-add").addEventListener("click", addBackgroundFact);
   renderNewFeedList();
   loadTopicForEdit($("#topic-select").value);
 }

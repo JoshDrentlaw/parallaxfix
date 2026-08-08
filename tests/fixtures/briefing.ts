@@ -127,5 +127,16 @@ export function sampleBriefing(): Briefing {
       "TikTok/Instagram remain unreachable — though 7 reachable items point at one TikTok video.",
     total_items: 58,
     total_claims: 4,
+    background_facts: [
+      {
+        id: "f1",
+        text:
+          "California recall petitions require signatures from 15% of registered voters in the " +
+          "district, per state elections code.",
+        source_name: "California Secretary of State",
+        source_url: "https://example.com/ca-sos/recall-requirements",
+        as_of: t("2026-06-01T00:00:00Z"),
+      },
+    ],
   };
 }

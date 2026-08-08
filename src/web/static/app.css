@@ -372,6 +372,35 @@ code {
   font-style: italic;
 }
 
+/* background facts — deliberately distinct from .overview/.narrative so it
+   can't be mistaken for a claim pulled from the discourse: a dashed border
+   (vs. the narrative/coverage cards' solid one) and no evidence badge. */
+.background {
+  border-style: dashed;
+}
+.background-fact {
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--border);
+}
+.background-fact:first-of-type {
+  border-top: none;
+}
+.background-fact .text {
+  margin: 0 0 0.2rem;
+}
+.background-fact .meta {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+.background-fact .meta a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.background-fact .meta a:hover {
+  text-decoration: underline;
+}
+
 /* narratives */
 .narrative {
   margin-bottom: 1rem;
@@ -739,6 +768,46 @@ button.danger:hover {
   line-height: 1.4;
 }
 .feed-list .empty {
+  padding: 0.2rem 0;
+}
+
+.fact-list {
+  list-style: none;
+  margin: 0 0 0.6rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.fact-list .fact-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 0.7rem;
+}
+.fact-item-body {
+  flex: 1;
+  min-width: 0;
+}
+.fact-item-body .fact-text {
+  margin: 0 0 0.2rem;
+  font-size: 0.88rem;
+}
+.fact-item-body .fact-meta {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.fact-list button {
+  padding: 0.1rem 0.55rem;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  flex-shrink: 0;
+}
+.fact-list .empty {
   padding: 0.2rem 0;
 }
 
