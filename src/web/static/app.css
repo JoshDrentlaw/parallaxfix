@@ -135,6 +135,32 @@ main {
 .controls .row + .row {
   margin-top: 0.8rem;
 }
+
+.advanced-toggle {
+  margin-top: 0.8rem;
+}
+.advanced-toggle summary {
+  cursor: pointer;
+  font-size: 0.78rem;
+  color: var(--muted);
+  list-style: none;
+}
+.advanced-toggle summary::-webkit-details-marker {
+  display: none;
+}
+.advanced-toggle summary::before {
+  content: "▸ ";
+  display: inline-block;
+}
+.advanced-toggle[open] summary::before {
+  content: "▾ ";
+}
+.advanced-toggle[open] summary {
+  margin-bottom: 0.8rem;
+}
+.advanced-toggle .row + .row {
+  margin-top: 0.8rem;
+}
 label {
   display: flex;
   flex-direction: column;
@@ -381,16 +407,37 @@ code {
   margin-left: auto;
   min-width: 0;
 }
-.velocity {
-  color: var(--accent);
+.velocity-bucket {
   font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  cursor: help;
 }
-.relevance {
+.velocity-bucket.hot {
+  color: var(--accent);
+}
+.velocity-bucket.active {
+  color: var(--text);
+}
+.velocity-bucket.quiet {
   color: var(--muted);
-  margin-left: 0.5rem;
 }
-.relevance::before {
+.relevance-bucket {
+  margin-left: 0.5rem;
+  cursor: help;
+}
+.relevance-bucket::before {
   content: "· ";
+}
+.relevance-bucket.strong {
+  color: var(--ok);
+}
+.relevance-bucket.plausible {
+  color: var(--warn);
+}
+.relevance-bucket.weak {
+  color: var(--muted);
 }
 
 /* ── narrative table of contents ─────────────────────────────────────────
@@ -483,6 +530,9 @@ code {
   padding: 0.28rem 0;
   font-size: 0.9rem;
 }
+.claim .info-chip-wrap {
+  flex-shrink: 0;
+}
 .claim .text {
   min-width: 0;
 }
@@ -521,6 +571,20 @@ code {
 }
 .badge.unsourced {
   color: var(--ev-unsourced);
+}
+
+/* Evidence-type badges double as info-chip triggers (tap for a definition) —
+   reset the circular "?" chip sizing back to the badge pill look; color and
+   shape otherwise stay identical to a plain (non-interactive) .badge. */
+.badge.info-chip {
+  width: auto;
+  height: auto;
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-radius: 5px;
+  padding: 0.1em 0.5em;
+  background: transparent;
 }
 
 .empty {
