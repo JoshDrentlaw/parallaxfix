@@ -118,6 +118,14 @@ async function loadStatus() {
   } catch { /* status is cosmetic; the actions surface real errors */ }
 }
 
+// A saved topic already carries its own keywords/entities/description/exclude
+// (edited in the topic manager); the ad hoc Keywords field is ignored
+// server-side once a topicId is sent (see requestBody()), so hide it rather
+// than show an input whose value silently does nothing.
+function updateKeywordsVisibility() {
+  $("#keywords-field").hidden = Boolean($("#topic-select").value);
+}
+
 /** (Re)populate the saved-topic dropdown. Pass an id to select afterward (falls back to ad hoc). */
 async function loadTopics(selectId) {
   const select = $("#topic-select");
@@ -131,6 +139,7 @@ async function loadTopics(selectId) {
   // select.options[0] is the always-present "— ad hoc —" placeholder, so
   // length 1 means zero real saved topics.
   $("#topic-select-hint").hidden = select.options.length > 1;
+  updateKeywordsVisibility();
 }
 
 // ── renderers (coverage first, always — P1) ────────────────────────────────
@@ -195,6 +204,58 @@ function renderCoverage(c) {
   return card;
 }
 
+// ── velocity/relevance buckets ──────────────────────────────────────────────
+// Thresholds are an initial heuristic, not tuned against a real velocity/
+// similarity distribution (same caveat DEFAULT_MIN_SIMILARITY in
+// src/corpus/store.ts carries) — revisit once there's real usage data.
+// Velocity is a magnitude (items/hour over a fixed recent window), not a
+// measured trend, so the labels describe how much is happening, not whether
+// it's accelerating or decelerating.
+function velocityBucket(v) {
+  if (v >= 3) return { label: "hot", cls: "hot" };
+  if (v >= 0.5) return { label: "active", cls: "active" };
+  return { label: "quiet", cls: "quiet" };
+}
+
+function relevanceBucket(r) {
+  if (r >= 0.65) return { label: "strong match", cls: "strong" };
+  if (r >= 0.5) return { label: "plausible match", cls: "plausible" };
+  return { label: "weak match", cls: "weak" };
+}
+
+// Definitions for the P4 evidence-type tags — legible to whoever wrote the
+// extraction prompt (src/llm/anthropic.ts), not necessarily to a first-time
+// reader of a briefing.
+const EVIDENCE_TYPE_DEFINITIONS = {
+  primary_record: "A document, filing, or official record being described directly — not " +
+    "someone's account of one.",
+  reported: "Reported by a journalist or outlet, attributed to a source.",
+  opinion: "A stated opinion or interpretation, not an assertion of fact.",
+  unsourced: "An assertion with no clear origin given — treat with the most caution.",
+};
+
+/** An evidence-type badge that doubles as a tap-to-define info-chip (same mechanism as
+ *  the topic manager's field descriptions). */
+function evidenceBadge(evidenceType) {
+  return el(
+    "span",
+    { class: "info-chip-wrap" },
+    el("button", {
+      type: "button",
+      class: `badge info-chip ${evidenceType}`,
+      "aria-expanded": "false",
+      "aria-label": "What does this evidence type mean?",
+      text: evidenceType.replace("_", " "),
+    }),
+    el("span", {
+      class: "info-popover",
+      role: "tooltip",
+      hidden: "",
+      text: EVIDENCE_TYPE_DEFINITIONS[evidenceType] ?? "",
+    }),
+  );
+}
+
 function provenanceLine(e) {
   const line = el(
     "p",
@@ -208,6 +269,8 @@ function provenanceLine(e) {
 
 function renderNarrative(n, i, provenance) {
   const card = el("article", { class: "card narrative", id: `narrative-${n.cluster_id}` });
+  const vb = velocityBucket(n.velocity);
+  const rb = relevanceBucket(n.relevance);
   const head = el(
     "div",
     { class: "narrative-head" },
@@ -219,8 +282,16 @@ function renderNarrative(n, i, provenance) {
     el(
       "span",
       { class: "narrative-meta" },
-      el("span", { class: "velocity", text: `${n.velocity.toFixed(2)}/h` }),
-      el("span", { class: "relevance", text: `relevance ${n.relevance.toFixed(2)}` }),
+      el("span", {
+        class: `velocity-bucket ${vb.cls}`,
+        title: `${n.velocity.toFixed(2)} items/h`,
+        text: vb.label,
+      }),
+      el("span", {
+        class: `relevance-bucket ${rb.cls}`,
+        title: `relevance score ${n.relevance.toFixed(2)}`,
+        text: rb.label,
+      }),
       ` · ${n.size} item(s) · first seen ${fmtTime(n.first_seen)}`,
     ),
   );
@@ -264,10 +335,7 @@ function renderNarrative(n, i, provenance) {
         el(
           "div",
           { class: "claim" },
-          el("span", {
-            class: `badge ${c.evidence_type}`,
-            text: c.evidence_type.replace("_", " "),
-          }),
+          evidenceBadge(c.evidence_type),
           el("span", { class: "text", text: c.text }),
           el("span", {
             class: "meta",
@@ -334,8 +402,9 @@ function renderBriefing(b) {
   out.push(
     el("h2", {
       class: "section-title",
-      text: "Narratives — ranked by velocity (rate of change, not volume); " +
-        "relevance (0–1) is topic-match strength",
+      text: "Narratives — ranked by velocity (rate of change, not volume, shown as " +
+        "hot/active/quiet); relevance is shown as a match-strength bucket — hover either " +
+        "for the raw number",
     }),
   );
   if (b.narratives.length === 0) {
@@ -384,8 +453,7 @@ const del = (path) => request("DELETE", path);
 
 function setBusy(msg) {
   const busy = Boolean(msg);
-  $("#gather-btn").disabled = busy;
-  $("#brief-btn").disabled = busy;
+  $("#update-btn").disabled = busy;
   const span = $("#busy");
   span.hidden = !busy;
   span.textContent = msg || "";
@@ -411,31 +479,14 @@ function focusResults() {
   $("#results").focus();
 }
 
-async function runGather() {
+async function runUpdate() {
   clearOutput();
-  setBusy("gathering Reddit + GDELT + RSS into the corpus…");
+  const body = requestBody();
   try {
-    const { coverage } = await post("api/gather", requestBody());
-    $("#results").replaceChildren(
-      el("h2", {
-        class: "section-title",
-        text: "Gather complete — corpus updated. Now generate a briefing.",
-      }),
-      renderCoverage(coverage),
-    );
-    focusResults();
-  } catch (err) {
-    showError(err);
-  } finally {
-    setBusy(null);
-  }
-}
-
-async function runBrief() {
-  clearOutput();
-  setBusy("clustering, labeling, extracting claims — the Haiku batch step can take a while…");
-  try {
-    const briefing = await post("api/brief", requestBody());
+    setBusy("gathering Reddit + GDELT + RSS into the corpus…");
+    await post("api/gather", body);
+    setBusy("clustering, labeling, extracting claims — the Haiku batch step can take a while…");
+    const briefing = await post("api/brief", body);
     $("#results").replaceChildren(...renderBriefing(briefing));
     focusResults();
   } catch (err) {
@@ -715,7 +766,10 @@ function initTopicManager() {
   for (const btn of document.querySelectorAll(".tm-tab")) {
     btn.addEventListener("click", () => switchTab(btn.dataset.tab));
   }
-  $("#topic-select").addEventListener("change", (e) => loadTopicForEdit(e.target.value));
+  $("#topic-select").addEventListener("change", (e) => {
+    loadTopicForEdit(e.target.value);
+    updateKeywordsVisibility();
+  });
   $("#tm-new-feed-add").addEventListener("click", addNewTopicFeed);
   $("#tm-new-create").addEventListener("click", createNewTopic);
   $("#tm-edit-feed-add").addEventListener("click", addEditFeed);
@@ -735,8 +789,7 @@ setInterval(loadStatus, 15_000);
 loadTopics();
 initTopicManager();
 initInfoChips();
-$("#gather-btn").addEventListener("click", runGather);
-$("#brief-btn").addEventListener("click", runBrief);
+$("#update-btn").addEventListener("click", runUpdate);
 $("#keywords").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") runBrief();
+  if (e.key === "Enter") runUpdate();
 });
