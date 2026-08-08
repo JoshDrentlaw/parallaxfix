@@ -250,6 +250,30 @@
                 </div>
                 <div id="tm-edit-fact-result"></div>
               </details>
+              <details class="advanced-toggle">
+                <summary>
+                  Auto-draft with Claude
+                  <span class="info-chip-wrap">
+                    <button
+                      type="button"
+                      class="info-chip"
+                      aria-expanded="false"
+                      aria-label="What is this field for?"
+                    >
+                      ?
+                    </button>
+                    <span class="info-popover" role="tooltip" hidden
+                    >Claude researches the topic with web search and proposes candidate background
+                      facts with citations. Nothing is saved until you approve a candidate —
+                      review each one before it's added.</span>
+                  </span>
+                </summary>
+                <div class="row">
+                  <button id="tm-edit-fact-draft" type="button">Draft candidate facts</button>
+                  <span id="tm-edit-fact-draft-status" class="tm-status"></span>
+                </div>
+                <ul id="tm-edit-fact-drafts" class="fact-list"></ul>
+              </details>
             </div>
           </section>
 

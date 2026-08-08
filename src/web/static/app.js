@@ -781,6 +781,8 @@ async function loadTopicForEdit(id) {
     setStatus($("#tm-edit-status"), "");
     hint.hidden = true;
     form.hidden = false;
+    $("#tm-edit-fact-drafts").replaceChildren();
+    setStatus($("#tm-edit-fact-draft-status"), "");
     loadTopicTags(id);
     loadTopicFacts(id);
   } catch {
@@ -1070,6 +1072,70 @@ async function removeEditFact(id, factId) {
   }
 }
 
+// ── Track B auto-draft: Claude + web search proposes candidate facts;
+//    nothing is saved until a human approves one (draft-and-approve, never
+//    auto-publish). Approval reuses the same create-fact flow the manual
+//    "+ New background fact" form uses. ───────────────────────────────────
+
+function draftFactItem(draft, onApprove, onDiscard) {
+  const li = el(
+    "li",
+    { class: "fact-item" },
+    el(
+      "div",
+      { class: "fact-item-body" },
+      el("p", { class: "fact-text", text: draft.text }),
+      el("p", {
+        class: "fact-meta",
+        text: `${draft.source_name} · as of ${draft.as_of} · ${draft.source_url}`,
+      }),
+    ),
+  );
+  const approveBtn = el("button", { type: "button", text: "Approve & attach" });
+  approveBtn.addEventListener("click", onApprove);
+  const discardBtn = el("button", { type: "button", text: "Discard" });
+  discardBtn.addEventListener("click", onDiscard);
+  li.append(approveBtn, discardBtn);
+  return li;
+}
+
+async function draftBackgroundFacts() {
+  const id = $("#topic-select").value;
+  if (!id) return;
+  const status = $("#tm-edit-fact-draft-status");
+  const list = $("#tm-edit-fact-drafts");
+  setStatus(status, "researching…");
+  try {
+    const drafts = await post(`api/topics/${encodeURIComponent(id)}/facts/draft`, {});
+    if (!drafts.length) {
+      setStatus(status, "no verifiable facts found", false);
+      list.replaceChildren();
+      return;
+    }
+    setStatus(status, `${drafts.length} candidate(s) — review before attaching`, true);
+    list.replaceChildren(
+      ...drafts.map((draft) => {
+        const li = draftFactItem(
+          draft,
+          async () => {
+            try {
+              await post(`api/topics/${encodeURIComponent(id)}/facts`, draft);
+              li.remove();
+              await loadTopicFacts(id);
+            } catch (err) {
+              setStatus(status, err.message, false);
+            }
+          },
+          () => li.remove(),
+        );
+        return li;
+      }),
+    );
+  } catch (err) {
+    setStatus(status, err.message, false);
+  }
+}
+
 // ── field-description popovers: tap the "?" chip to see what a field is
 //    for. Click-triggered, not hover-only — a tooltip a touch device can't
 //    reach isn't one tap away. Outside-tap or Escape dismisses; opening one
@@ -1135,6 +1201,7 @@ function initTopicManager() {
   $("#tm-edit-tag-attach").addEventListener("click", attachExistingTag);
   $("#tm-edit-new-tag-create").addEventListener("click", createAndAttachTag);
   $("#tm-edit-fact-add").addEventListener("click", addBackgroundFact);
+  $("#tm-edit-fact-draft").addEventListener("click", draftBackgroundFacts);
   renderNewFeedList();
   loadTopicForEdit($("#topic-select").value);
 }
