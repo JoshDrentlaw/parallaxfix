@@ -14,6 +14,7 @@ import type { CoverageReport } from "./ports.ts";
 import { PgCorpus } from "./corpus/store.ts";
 import { LocalEmbedder } from "./corpus/embed.ts";
 import { FactStore } from "./facts/store.ts";
+import { BriefingStore } from "./briefing/store.ts";
 import { GdeltAdapter, toGdeltDatetime } from "./ingestion/gdelt.ts";
 import { RedditAdapter } from "./ingestion/reddit.ts";
 import { RssAdapter } from "./ingestion/rss.ts";
@@ -218,5 +219,21 @@ export async function briefTopic(
       );
     }
   }
+
+  // Track A #5: persist to the briefings library so past runs stay
+  // browsable ("yesterday vs. today") instead of vanishing when the tab
+  // closes. Best-effort, same reasoning as background facts above.
+  const store = new BriefingStore(ctx.databaseUrl);
+  try {
+    await store.init();
+    await store.save(briefing);
+  } catch (err) {
+    progress(
+      `could not save to the briefings library (${err instanceof Error ? err.message : err})`,
+    );
+  } finally {
+    await store.close();
+  }
+
   return briefing;
 }

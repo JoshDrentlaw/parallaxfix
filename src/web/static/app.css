@@ -644,6 +644,58 @@ code {
   margin-bottom: 0.9rem;
 }
 
+#briefings-library summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+  list-style: none;
+}
+#briefings-library summary::-webkit-details-marker {
+  display: none;
+}
+#briefings-library summary::before {
+  content: "▸ ";
+  display: inline-block;
+}
+#briefings-library[open] summary::before {
+  content: "▾ ";
+}
+#briefings-library[open] summary {
+  margin-bottom: 0.7rem;
+}
+.briefings-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.briefing-link {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.6rem;
+  text-align: left;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 0.7rem;
+  font: inherit;
+  color: var(--text);
+  cursor: pointer;
+}
+.briefing-link .briefing-time {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.briefing-link .briefing-summary-text {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
 .tm-tabs {
   display: flex;
   gap: 0.5rem;
