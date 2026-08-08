@@ -514,6 +514,7 @@ async function runUpdate() {
     $("#results").replaceChildren(...renderBriefing(briefing));
     focusResults();
     await loadBriefingsLibrary($("#topic-select").value);
+    await loadHomeView();
   } catch (err) {
     showError(err);
   } finally {
@@ -574,6 +575,56 @@ async function viewStoredBriefing(id) {
     showError(err);
   } finally {
     setBusy(null);
+  }
+}
+
+// ── home view (Track A #6): a velocity-ranked snapshot across every saved
+//    topic's latest briefing — the thing that puts a rising topic in front
+//    of you without first having to think to open it. ──────────────────────
+
+function homeViewItem(entry, onView) {
+  const vb = entry.top_velocity !== null ? velocityBucket(entry.top_velocity) : null;
+  const summary = vb
+    ? `${vb.label}${entry.top_label ? ` — ${entry.top_label}` : ""}`
+    : "no narratives in the latest run";
+  const btn = el(
+    "button",
+    { type: "button", class: `home-view-link ${vb ? vb.cls : ""}` },
+    el("span", { class: "home-view-topic", text: entry.topic_id }),
+    el("span", { class: "home-view-summary", text: summary }),
+    el("span", { class: "home-view-time", text: fmtTime(entry.generated_at) }),
+  );
+  btn.addEventListener("click", () => onView(entry));
+  return el("li", {}, btn);
+}
+
+async function selectHomeViewEntry(entry) {
+  const select = $("#topic-select");
+  if ([...select.options].some((o) => o.value === entry.topic_id)) {
+    select.value = entry.topic_id;
+    loadTopicForEdit(entry.topic_id);
+    updateKeywordsVisibility();
+    loadBriefingsLibrary(entry.topic_id);
+  }
+  await viewStoredBriefing(entry.id);
+}
+
+async function loadHomeView() {
+  const section = $("#home-view");
+  try {
+    const entries = await (await fetch("api/briefings/latest")).json();
+    if (!Array.isArray(entries) || entries.length === 0) {
+      section.hidden = true;
+      return;
+    }
+    // Nulls (an empty briefing with no narratives) sort last, not first.
+    const ranked = [...entries].sort((a, b) => (b.top_velocity ?? -1) - (a.top_velocity ?? -1));
+    $("#home-view-list").replaceChildren(
+      ...ranked.map((e) => homeViewItem(e, selectHomeViewEntry)),
+    );
+    section.hidden = false;
+  } catch {
+    section.hidden = true;
   }
 }
 
@@ -1096,6 +1147,7 @@ loadStatus();
 // everything else in /api/status is effectively static per process lifetime.
 setInterval(loadStatus, 15_000);
 loadTopics();
+loadHomeView();
 initTopicManager();
 initInfoChips();
 $("#update-btn").addEventListener("click", runUpdate);
