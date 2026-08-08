@@ -13,6 +13,7 @@ import type { Briefing, Item, LLMPort, SourcePort, TopicDefinition } from "./por
 import type { CoverageReport } from "./ports.ts";
 import { PgCorpus } from "./corpus/store.ts";
 import { LocalEmbedder } from "./corpus/embed.ts";
+import { FactStore } from "./facts/store.ts";
 import { GdeltAdapter, toGdeltDatetime } from "./ingestion/gdelt.ts";
 import { RedditAdapter } from "./ingestion/reddit.ts";
 import { RssAdapter } from "./ingestion/rss.ts";
@@ -187,6 +188,24 @@ export async function briefTopic(
   let briefing = assembleBriefing(topic.id, clusters, claims, itemsById, coverage, {
     generatedAt: now,
   });
+
+  // Background (Track B): general context for the topic's subject matter,
+  // independent of this run's narratives. Best-effort — a facts-table hiccup
+  // shouldn't take down the briefing the narrative/claim pipeline already
+  // produced.
+  const facts = new FactStore(ctx.databaseUrl);
+  try {
+    await facts.init();
+    briefing.background_facts = await facts.factsForTopic(topic.id);
+  } catch (err) {
+    progress(
+      `background facts unavailable (${err instanceof Error ? err.message : err}) — ` +
+        "continuing without them",
+    );
+  } finally {
+    await facts.close();
+  }
+
   if (llm) {
     progress("synthesizing overview…");
     try {

@@ -155,6 +155,96 @@
                 <button id="tm-edit-feed-add" type="button">Validate &amp; add</button>
               </div>
               <div id="tm-edit-feed-result"></div>
+
+              <h3 class="tm-subtitle">
+                Tags
+                <span class="info-chip-wrap">
+                  <button
+                    type="button"
+                    class="info-chip"
+                    aria-expanded="false"
+                    aria-label="What is this field for?"
+                  >
+                    ?
+                  </button>
+                  <span class="info-popover" role="tooltip" hidden
+                  >A controlled vocabulary (e.g. "data centers") that scopes shared background facts
+                    across topics — a fact tagged the same way can be suggested to any topic with
+                    that tag, not just the one it was first added to.</span>
+                </span>
+              </h3>
+              <ul id="tm-edit-tag-list" class="feed-list"></ul>
+              <div class="row">
+                <label class="grow">Attach existing tag
+                  <select id="tm-edit-tag-select">
+                    <option value="">— choose a tag —</option>
+                  </select>
+                </label>
+                <button id="tm-edit-tag-attach" type="button">Attach</button>
+              </div>
+              <details class="advanced-toggle">
+                <summary>+ New tag</summary>
+                <div class="row">
+                  <label class="grow">Name
+                    <input id="tm-edit-new-tag-name" placeholder="Data Centers" autocomplete="off">
+                  </label>
+                  <label class="grow">Description (optional)
+                    <input id="tm-edit-new-tag-description" autocomplete="off">
+                  </label>
+                  <button id="tm-edit-new-tag-create" type="button">Create &amp; attach</button>
+                </div>
+              </details>
+
+              <h3 class="tm-subtitle">
+                Background facts
+                <span class="info-chip-wrap">
+                  <button
+                    type="button"
+                    class="info-chip"
+                    aria-expanded="false"
+                    aria-label="What is this field for?"
+                  >
+                    ?
+                  </button>
+                  <span class="info-popover" role="tooltip" hidden
+                  >General context for this topic's subject matter — independent of any specific
+                    narrative in the corpus. Rendered as its own Background section in the briefing,
+                    never mixed in with claims pulled from the discourse.</span>
+                </span>
+              </h3>
+              <ul id="tm-edit-fact-list" class="fact-list"></ul>
+              <div id="tm-edit-fact-suggestions"></div>
+              <details class="advanced-toggle">
+                <summary>+ New background fact</summary>
+                <div class="row">
+                  <label class="grow">Text
+                    <input
+                      id="tm-edit-fact-text"
+                      placeholder="Hyperscale data centers run roughly 528,000 gal/day of water."
+                      autocomplete="off"
+                    >
+                  </label>
+                </div>
+                <div class="row">
+                  <label class="grow">Source name
+                    <input id="tm-edit-fact-source-name" placeholder="EESI" autocomplete="off">
+                  </label>
+                  <label class="grow">Source URL
+                    <input
+                      id="tm-edit-fact-source-url"
+                      placeholder="https://example.com/source"
+                      autocomplete="off"
+                    >
+                  </label>
+                  <label class="narrow">As of
+                    <input id="tm-edit-fact-as-of" type="date">
+                  </label>
+                </div>
+                <div class="row">
+                  <button id="tm-edit-fact-add" type="button">Add &amp; attach fact</button>
+                </div>
+                <div id="tm-edit-fact-result"></div>
+              </details>
             </div>
           </section>
 

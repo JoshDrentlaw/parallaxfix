@@ -10,7 +10,8 @@
  * data, not markup, not instructions.
  */
 
-import type { Briefing, CoverageReport, TopicDefinition } from "../ports.ts";
+import type { BackgroundFact, Briefing, CoverageReport, Tag, TopicDefinition } from "../ports.ts";
+import { FactStore } from "../facts/store.ts";
 import {
   adHocTopic,
   deleteTopic,
@@ -257,6 +258,201 @@ async function removeFeed(id: string, url: string, dir: string): Promise<Respons
   return json(topic);
 }
 
+// ── Track B (manual curation): background facts + the tag vocabulary that
+//    scopes them to topics. Facts/tags live in Postgres (FactStore), same DB
+//    as the corpus but a separate connection/schema concern — see
+//    src/facts/store.ts. Each handler opens+closes its own FactStore, same
+//    per-call lifecycle gather/brief use for PgCorpus. ──────────────────────
+
+/** GET /api/tags */
+async function listTagsHandler(databaseUrl: string): Promise<Response> {
+  const facts = new FactStore(databaseUrl);
+  try {
+    await facts.init();
+    return json(await facts.listTags());
+  } finally {
+    await facts.close();
+  }
+}
+
+/** POST /api/tags — {name, slug?, description?}. slug is derived from name if omitted. */
+async function createTagHandler(databaseUrl: string, req: Request): Promise<Response> {
+  const body = await readJsonBody<{ slug?: unknown; name?: unknown; description?: unknown }>(req);
+  if (body instanceof Response) return body;
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  if (!name) return errorJson(400, "name is required");
+  const slug = slugifyTopicId(typeof body.slug === "string" && body.slug.trim() ? body.slug : name);
+  if (!slug) return errorJson(400, "could not derive a slug from name");
+  const description = typeof body.description === "string" && body.description.trim()
+    ? body.description.trim()
+    : null;
+
+  const facts = new FactStore(databaseUrl);
+  try {
+    await facts.init();
+    return json(await facts.createTag(slug, name, description), 201);
+  } finally {
+    await facts.close();
+  }
+}
+
+/** GET /api/topics/:id/facts — facts currently attached to this topic. */
+async function listTopicFacts(databaseUrl: string, topicId: string): Promise<Response> {
+  const facts = new FactStore(databaseUrl);
+  try {
+    await facts.init();
+    return json(await facts.factsForTopic(topicId));
+  } finally {
+    await facts.close();
+  }
+}
+
+/**
+ * POST /api/topics/:id/facts — attach a fact to a topic. Either `{factId}` to
+ * attach an existing fact, or `{text, source_name, source_url, as_of?}` to
+ * create a new one and attach it in one step — the same
+ * validate-then-add shape the RSS feed flow uses.
+ */
+async function addTopicFact(databaseUrl: string, topicId: string, req: Request): Promise<Response> {
+  const body = await readJsonBody<{
+    factId?: unknown;
+    text?: unknown;
+    source_name?: unknown;
+    source_url?: unknown;
+    as_of?: unknown;
+  }>(req);
+  if (body instanceof Response) return body;
+
+  const facts = new FactStore(databaseUrl);
+  try {
+    await facts.init();
+    let fact: BackgroundFact;
+    if (typeof body.factId === "string" && body.factId.trim()) {
+      const found = (await facts.listAllFacts()).find((f) => f.id === body.factId);
+      if (!found) return errorJson(404, `no fact "${body.factId}"`);
+      fact = found;
+    } else {
+      const text = typeof body.text === "string" ? body.text.trim() : "";
+      const sourceName = typeof body.source_name === "string" ? body.source_name.trim() : "";
+      const sourceUrl = typeof body.source_url === "string" ? body.source_url.trim() : "";
+      if (!text || !sourceName || !sourceUrl) {
+        return errorJson(400, "text, source_name, and source_url are required");
+      }
+      let asOf = new Date();
+      if (typeof body.as_of === "string" && body.as_of.trim()) {
+        const parsed = new Date(body.as_of);
+        if (Number.isNaN(parsed.getTime())) return errorJson(400, "as_of is not a valid date");
+        asOf = parsed;
+      }
+      fact = await facts.createFact({
+        text,
+        source_name: sourceName,
+        source_url: sourceUrl,
+        as_of: asOf,
+      });
+    }
+    await facts.attachFactToTopic(topicId, fact.id);
+    return json(fact, 201);
+  } finally {
+    await facts.close();
+  }
+}
+
+/** DELETE /api/topics/:id/facts?factId=... — detach; the fact record itself survives. */
+async function removeTopicFact(
+  databaseUrl: string,
+  topicId: string,
+  factId: string,
+): Promise<Response> {
+  if (!factId) return errorJson(400, "factId query parameter is required");
+  const facts = new FactStore(databaseUrl);
+  try {
+    await facts.init();
+    await facts.detachFactFromTopic(topicId, factId);
+    return json({ detached: factId });
+  } finally {
+    await facts.close();
+  }
+}
+
+/** GET /api/topics/:id/fact-suggestions — untached facts sharing a tag with this topic. */
+async function suggestTopicFacts(databaseUrl: string, topicId: string): Promise<Response> {
+  const facts = new FactStore(databaseUrl);
+  try {
+    await facts.init();
+    return json(await facts.suggestFactsForTopic(topicId));
+  } finally {
+    await facts.close();
+  }
+}
+
+/** GET /api/topics/:id/tags */
+async function listTopicTags(databaseUrl: string, topicId: string): Promise<Response> {
+  const facts = new FactStore(databaseUrl);
+  try {
+    await facts.init();
+    return json(await facts.tagsForTopic(topicId));
+  } finally {
+    await facts.close();
+  }
+}
+
+/**
+ * POST /api/topics/:id/tags — `{tagId}` to attach an existing tag, or
+ * `{name, slug?, description?}` to create (or reuse, by slug) a tag and
+ * attach it in one step. Deliberately not an accidental side effect of
+ * typing into a free-text field — creating a new tag is its own action.
+ */
+async function addTopicTag(databaseUrl: string, topicId: string, req: Request): Promise<Response> {
+  const body = await readJsonBody<
+    { tagId?: unknown; slug?: unknown; name?: unknown; description?: unknown }
+  >(req);
+  if (body instanceof Response) return body;
+
+  const facts = new FactStore(databaseUrl);
+  try {
+    await facts.init();
+    let tag: Tag;
+    if (typeof body.tagId === "string" && body.tagId.trim()) {
+      const found = (await facts.listTags()).find((t) => t.id === body.tagId);
+      if (!found) return errorJson(404, `no tag "${body.tagId}"`);
+      tag = found;
+    } else {
+      const name = typeof body.name === "string" ? body.name.trim() : "";
+      if (!name) return errorJson(400, "name is required");
+      const slug = slugifyTopicId(
+        typeof body.slug === "string" && body.slug.trim() ? body.slug : name,
+      );
+      if (!slug) return errorJson(400, "could not derive a slug from name");
+      const description = typeof body.description === "string" && body.description.trim()
+        ? body.description.trim()
+        : null;
+      tag = await facts.createTag(slug, name, description);
+    }
+    await facts.tagTopic(topicId, tag.id);
+    return json(tag, 201);
+  } finally {
+    await facts.close();
+  }
+}
+
+/** DELETE /api/topics/:id/tags?tagId=... */
+async function removeTopicTag(
+  databaseUrl: string,
+  topicId: string,
+  tagId: string,
+): Promise<Response> {
+  if (!tagId) return errorJson(400, "tagId query parameter is required");
+  const facts = new FactStore(databaseUrl);
+  try {
+    await facts.init();
+    await facts.untagTopic(topicId, tagId);
+    return json({ detached: tagId });
+  } finally {
+    await facts.close();
+  }
+}
+
 /**
  * Build the request handler. Dependencies default to the real pipeline
  * (imported lazily so the server starts fast and tests never touch Postgres).
@@ -317,7 +513,18 @@ export function createHandler(deps: WebDeps = {}): (req: Request) => Promise<Res
             });
           case "/api/topics":
             return json(await listTopics(topicsDir));
+          case "/api/tags": {
+            const db = requireDb();
+            if (db instanceof Response) return db;
+            return await listTagsHandler(db);
+          }
         }
+      }
+
+      if (req.method === "POST" && pathname === "/api/tags") {
+        const db = requireDb();
+        if (db instanceof Response) return db;
+        return await createTagHandler(db, req);
       }
 
       // Topic CRUD + per-topic feed management. `id` is sanitized before it
@@ -330,6 +537,44 @@ export function createHandler(deps: WebDeps = {}): (req: Request) => Promise<Res
           const url = searchParams.get("url");
           if (!url) return errorJson(400, "url query parameter is required");
           return await removeFeed(id, url, topicsDir);
+        }
+      }
+
+      // Track B: background facts + tags attached to a topic. Postgres-backed
+      // (like gather/brief), so these need DATABASE_URL.
+      const factsMatch = pathname.match(/^\/api\/topics\/([^/]+)\/facts$/);
+      if (factsMatch) {
+        const id = topicIdFromPath(factsMatch[1]);
+        const db = requireDb();
+        if (db instanceof Response) return db;
+        if (req.method === "GET") return await listTopicFacts(db, id);
+        if (req.method === "POST") return await addTopicFact(db, id, req);
+        if (req.method === "DELETE") {
+          const factId = searchParams.get("factId");
+          if (!factId) return errorJson(400, "factId query parameter is required");
+          return await removeTopicFact(db, id, factId);
+        }
+      }
+
+      const factSuggestMatch = pathname.match(/^\/api\/topics\/([^/]+)\/fact-suggestions$/);
+      if (factSuggestMatch && req.method === "GET") {
+        const id = topicIdFromPath(factSuggestMatch[1]);
+        const db = requireDb();
+        if (db instanceof Response) return db;
+        return await suggestTopicFacts(db, id);
+      }
+
+      const tagsMatch = pathname.match(/^\/api\/topics\/([^/]+)\/tags$/);
+      if (tagsMatch) {
+        const id = topicIdFromPath(tagsMatch[1]);
+        const db = requireDb();
+        if (db instanceof Response) return db;
+        if (req.method === "GET") return await listTopicTags(db, id);
+        if (req.method === "POST") return await addTopicTag(db, id, req);
+        if (req.method === "DELETE") {
+          const tagId = searchParams.get("tagId");
+          if (!tagId) return errorJson(400, "tagId query parameter is required");
+          return await removeTopicTag(db, id, tagId);
         }
       }
 
