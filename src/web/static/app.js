@@ -140,6 +140,7 @@ async function loadTopics(selectId) {
   // length 1 means zero real saved topics.
   $("#topic-select-hint").hidden = select.options.length > 1;
   updateKeywordsVisibility();
+  loadBriefingsLibrary(select.value);
 }
 
 // ── renderers (coverage first, always — P1) ────────────────────────────────
@@ -472,6 +473,7 @@ async function request(method, path, body) {
 const post = (path, body) => request("POST", path, body);
 const put = (path, body) => request("PUT", path, body);
 const del = (path) => request("DELETE", path);
+const get = (path) => request("GET", path);
 
 function setBusy(msg) {
   const busy = Boolean(msg);
@@ -509,6 +511,63 @@ async function runUpdate() {
     await post("api/gather", body);
     setBusy("clustering, labeling, extracting claims — the Haiku batch step can take a while…");
     const briefing = await post("api/brief", body);
+    $("#results").replaceChildren(...renderBriefing(briefing));
+    focusResults();
+    await loadBriefingsLibrary($("#topic-select").value);
+  } catch (err) {
+    showError(err);
+  } finally {
+    setBusy(null);
+  }
+}
+
+// ── briefings library (Track A #5) — past briefings for a saved topic. Scoped
+//    to saved topics only: their id is always the slug saveTopic() persisted,
+//    matching briefing.topic_id exactly; an ad hoc topic's id is built from
+//    free-text keywords and isn't a stable return point the way a saved
+//    topic is. ─────────────────────────────────────────────────────────────
+
+function briefingLibraryItem(b, onView) {
+  const vb = b.top_velocity !== null ? velocityBucket(b.top_velocity) : null;
+  const summary = `${b.narrative_count} narrative(s) · ${b.total_items} item(s) · ` +
+    `${b.total_claims} claim(s)` +
+    (vb ? ` · top: ${vb.label}${b.top_label ? ` (${b.top_label})` : ""}` : "");
+  const btn = el(
+    "button",
+    { type: "button", class: "briefing-link" },
+    el("span", { class: "briefing-time", text: fmtTime(b.generated_at) }),
+    el("span", { class: "briefing-summary-text", text: summary }),
+  );
+  btn.addEventListener("click", () => onView(b.id));
+  return el("li", {}, btn);
+}
+
+async function loadBriefingsLibrary(topicId) {
+  const section = $("#briefings-library");
+  if (!topicId) {
+    section.hidden = true;
+    return;
+  }
+  try {
+    const list = await (await fetch(`api/topics/${encodeURIComponent(topicId)}/briefings`)).json();
+    if (!Array.isArray(list) || list.length === 0) {
+      section.hidden = true;
+      return;
+    }
+    $("#briefings-library-list").replaceChildren(
+      ...list.map((b) => briefingLibraryItem(b, viewStoredBriefing)),
+    );
+    section.hidden = false;
+  } catch {
+    section.hidden = true;
+  }
+}
+
+async function viewStoredBriefing(id) {
+  clearOutput();
+  setBusy("loading saved briefing…");
+  try {
+    const briefing = await get(`api/briefings/${encodeURIComponent(id)}`);
     $("#results").replaceChildren(...renderBriefing(briefing));
     focusResults();
   } catch (err) {
@@ -1015,6 +1074,7 @@ function initTopicManager() {
   $("#topic-select").addEventListener("change", (e) => {
     loadTopicForEdit(e.target.value);
     updateKeywordsVisibility();
+    loadBriefingsLibrary(e.target.value);
   });
   $("#tm-new-feed-add").addEventListener("click", addNewTopicFeed);
   $("#tm-new-create").addEventListener("click", createNewTopic);

@@ -12,6 +12,7 @@
 
 import type { BackgroundFact, Briefing, CoverageReport, Tag, TopicDefinition } from "../ports.ts";
 import { FactStore } from "../facts/store.ts";
+import { BriefingStore } from "../briefing/store.ts";
 import {
   adHocTopic,
   deleteTopic,
@@ -453,6 +454,44 @@ async function removeTopicTag(
   }
 }
 
+// ── Track A #5/#6: the briefings library. Postgres-backed (BriefingStore),
+//    same per-call open/close lifecycle as the Track B handlers above. ─────
+
+/** GET /api/topics/:id/briefings — past briefings for a topic, most recent first. */
+async function listTopicBriefings(databaseUrl: string, topicId: string): Promise<Response> {
+  const store = new BriefingStore(databaseUrl);
+  try {
+    await store.init();
+    return json(await store.listForTopic(topicId));
+  } finally {
+    await store.close();
+  }
+}
+
+/** GET /api/briefings/:id — a specific stored briefing's full payload (same shape as /api/brief). */
+async function getStoredBriefing(databaseUrl: string, id: string): Promise<Response> {
+  const store = new BriefingStore(databaseUrl);
+  try {
+    await store.init();
+    const data = await store.get(id);
+    if (!data) return errorJson(404, `no stored briefing "${id}"`);
+    return json(data);
+  } finally {
+    await store.close();
+  }
+}
+
+/** GET /api/briefings/latest — most recent briefing per topic, for the what's-moving home view. */
+async function listLatestBriefings(databaseUrl: string): Promise<Response> {
+  const store = new BriefingStore(databaseUrl);
+  try {
+    await store.init();
+    return json(await store.latestPerTopic());
+  } finally {
+    await store.close();
+  }
+}
+
 /**
  * Build the request handler. Dependencies default to the real pipeline
  * (imported lazily so the server starts fast and tests never touch Postgres).
@@ -518,6 +557,11 @@ export function createHandler(deps: WebDeps = {}): (req: Request) => Promise<Res
             if (db instanceof Response) return db;
             return await listTagsHandler(db);
           }
+          case "/api/briefings/latest": {
+            const db = requireDb();
+            if (db instanceof Response) return db;
+            return await listLatestBriefings(db);
+          }
         }
       }
 
@@ -576,6 +620,22 @@ export function createHandler(deps: WebDeps = {}): (req: Request) => Promise<Res
           if (!tagId) return errorJson(400, "tagId query parameter is required");
           return await removeTopicTag(db, id, tagId);
         }
+      }
+
+      // Track A #5: the briefings library.
+      const topicBriefingsMatch = pathname.match(/^\/api\/topics\/([^/]+)\/briefings$/);
+      if (topicBriefingsMatch && req.method === "GET") {
+        const id = topicIdFromPath(topicBriefingsMatch[1]);
+        const db = requireDb();
+        if (db instanceof Response) return db;
+        return await listTopicBriefings(db, id);
+      }
+
+      const briefingIdMatch = pathname.match(/^\/api\/briefings\/([^/]+)$/);
+      if (briefingIdMatch && req.method === "GET") {
+        const db = requireDb();
+        if (db instanceof Response) return db;
+        return await getStoredBriefing(db, decodeURIComponent(briefingIdMatch[1]));
       }
 
       const topicMatch = pathname.match(/^\/api\/topics\/([^/]+)$/);
