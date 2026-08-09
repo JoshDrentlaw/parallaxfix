@@ -145,37 +145,49 @@ async function loadTopics(selectId) {
 
 // ── renderers (coverage first, always — P1) ────────────────────────────────
 
+// A slim collapsible pill row — what this run could and couldn't see, at a
+// glance — that expands into the fuller per-gap breakdown and blind-spot
+// signal text rather than always showing all of it up front.
 function renderCoverage(c) {
-  const card = el("section", { class: "card coverage" });
-  card.append(
-    el("h2", { class: "section-title", text: "Coverage — what this run could and could NOT see " }),
-  );
-  card.append(el("p", {
+  const details = el("details", { class: "coverage" });
+  const row = el("div", { class: "coverage-row" });
+
+  const queried = c.sources_queried || [];
+  if (queried.length === 0) {
+    row.append(el("span", { class: "empty", text: "no sources queried" }));
+  }
+  for (const s of queried) {
+    row.append(
+      el(
+        "span",
+        { class: "cov-pill ok" },
+        el("span", { class: "dot" }),
+        `${s} ${c.items_per_source[s] ?? 0}`,
+      ),
+    );
+  }
+  for (const u of c.sources_unavailable || []) {
+    row.append(
+      el(
+        "span",
+        { class: "cov-pill gap" },
+        el("span", { class: "dot" }),
+        u.source,
+      ),
+    );
+  }
+  row.append(el("span", { class: "coverage-toggle", text: "coverage details" }));
+  details.append(el("summary", {}, row));
+
+  const detail = el("div", { class: "coverage-detail" });
+  detail.append(el("p", {
     class: "meta",
     text: `topic "${c.topic_id}" · run ${fmtTime(c.run_at)} · window ${fmtTime(c.window[0])} → ${
       fmtTime(c.window[1])
     }`,
   }));
-
-  const grid = el("div", { class: "coverage-grid" });
-  const queried = c.sources_queried || [];
-  if (queried.length === 0) {
-    grid.append(el("span", { class: "empty", text: "no sources queried" }));
-  }
-  for (const s of queried) {
-    grid.append(
-      el(
-        "div",
-        { class: "src-tile" },
-        el("div", { class: "n", text: String(c.items_per_source[s] ?? 0) }),
-        el("div", { class: "s", text: s }),
-      ),
-    );
-  }
-  card.append(grid);
-
   for (const u of c.sources_unavailable || []) {
-    card.append(
+    detail.append(
       el(
         "div",
         { class: "gap" },
@@ -186,7 +198,7 @@ function renderCoverage(c) {
     const sig = (c.blind_spot_signals || []).find((x) => x.platform === u.source);
     if (sig) {
       const by = Object.entries(sig.by_source).map(([s, n]) => `${s} ${n}`).join(", ");
-      card.append(el("div", {
+      detail.append(el("div", {
         class: "signal",
         text: `↳ but ${sig.referencing_items} reachable item(s) point at it (${by}) · ` +
           `${sig.references_per_hour.toFixed(1)}/h` +
@@ -197,12 +209,13 @@ function renderCoverage(c) {
     }
   }
   if ((c.blind_spot_signals || []).length) {
-    card.append(el("p", {
+    detail.append(el("p", {
       class: "signal-note",
       text: "references = attention, not content; links can be gamed — treat as a lead.",
     }));
   }
-  return card;
+  details.append(detail);
+  return details;
 }
 
 // ── velocity/relevance buckets ──────────────────────────────────────────────
@@ -261,70 +274,92 @@ function provenanceLine(e) {
   const line = el(
     "p",
     { class: "provenance" },
-    el("span", { class: "src-tag", text: e.source }),
-    ` ${e.author ?? "(unknown)"} · ${fmtTime(e.created_at)} · `,
+    el("span", {
+      class: `src-tag ${e.source}`,
+      text: e.source ? e.source[0].toUpperCase() : "?",
+    }),
+    `${e.source} · ${e.author ?? "(unknown)"} · ${fmtTime(e.created_at)} · `,
   );
   line.append(safeLink(e.url, "open ↗"));
   return line;
 }
 
+// Each narrative is a collapsible card: the head (rank/title/pills) is the
+// always-visible <summary>, evidence+claims are the collapsible body. Only
+// the first narrative opens by default — a run with a dozen-plus narratives
+// still opens as a short, scannable list of headlines instead of everything
+// unrolled at once.
 function renderNarrative(n, i, provenance) {
-  const card = el("article", { class: "card narrative", id: `narrative-${n.cluster_id}` });
+  const details = el("details", { class: "narrative", id: `narrative-${n.cluster_id}` });
+  if (i === 0) details.open = true;
+
   const vb = velocityBucket(n.velocity);
   const rb = relevanceBucket(n.relevance);
   const head = el(
-    "div",
+    "summary",
     { class: "narrative-head" },
-    el("span", { class: "rank", text: `#${i + 1}` }),
-    el("h3", {
-      class: n.label ? "label" : "label unlabeled",
-      text: n.label || "(unlabeled — set ANTHROPIC_API_KEY for labels)",
-    }),
+    el("span", { class: "rank mono", text: String(i + 1).padStart(2, "0") }),
     el(
       "span",
-      { class: "narrative-meta" },
-      el("span", {
-        class: `velocity-bucket ${vb.cls}`,
-        title: `${n.velocity.toFixed(2)} items/h`,
-        text: vb.label,
+      { class: "title-block" },
+      el("h3", {
+        class: n.label ? "label" : "label unlabeled",
+        text: n.label || "(unlabeled — set ANTHROPIC_API_KEY for labels)",
       }),
       el("span", {
-        class: `relevance-bucket ${rb.cls}`,
-        title: `relevance score ${n.relevance.toFixed(2)}`,
-        text: rb.label,
+        class: "sub",
+        text: `${n.size} item(s) · first seen ${fmtTime(n.first_seen)}`,
       }),
-      ` · ${n.size} item(s) · first seen ${fmtTime(n.first_seen)}`,
     ),
-  );
-  card.append(head);
-
-  // Evidence (exemplars + claims) collapses by default past the first
-  // couple narratives — the head above stays outside this <details> so
-  // it's always visible, giving the ToC and heading-based screen-reader
-  // navigation something real to land on even when collapsed.
-  const evidence = el("details", { class: "narrative-evidence" });
-  if (i < 2) evidence.open = true;
-  evidence.append(
-    el("summary", {
-      text:
-        `Evidence — ${n.representative_item_ids.length} exemplar(s), ${n.claims.length} claim(s)`,
-    }),
-  );
-
-  for (const id of n.representative_item_ids) {
-    const e = provenance[id];
-    if (!e) continue;
-    evidence.append(
+    el(
+      "span",
+      { class: "pills" },
       el(
-        "div",
-        { class: "exemplar" },
-        el("p", { class: "excerpt", text: e.excerpt }),
-        provenanceLine(e),
+        "span",
+        {
+          class: `pill ${vb.cls}`,
+          title: `${n.velocity.toFixed(2)} items/h`,
+        },
+        el("span", { class: "dot" }),
+        vb.label,
       ),
-    );
+      el(
+        "span",
+        {
+          class: `pill ${rb.cls}`,
+          title: `relevance score ${n.relevance.toFixed(2)}`,
+        },
+        el("span", { class: "dot" }),
+        rb.label,
+      ),
+    ),
+    el("span", { class: "chev", text: "›" }),
+  );
+  details.append(head);
+
+  const body = el("div", { class: "narrative-body" });
+  const inner = el("div", { class: "narrative-body-inner" });
+
+  if (n.representative_item_ids.length) {
+    inner.append(el("div", { class: "evidence-label", text: "Representative posts" }));
+    for (const id of n.representative_item_ids) {
+      const e = provenance[id];
+      if (!e) continue;
+      inner.append(
+        el(
+          "div",
+          { class: "exemplar" },
+          el("p", { class: "excerpt", text: e.excerpt }),
+          provenanceLine(e),
+        ),
+      );
+    }
   }
 
   if (n.claims.length) {
+    inner.append(
+      el("div", { class: "evidence-label claims-label", text: "Claims — tagged by evidence type" }),
+    );
     const claims = el("div", { class: "claims" });
     for (const c of n.claims) {
       const links = el("span", { class: "links" });
@@ -347,50 +382,53 @@ function renderNarrative(n, i, provenance) {
         ),
       );
     }
-    evidence.append(claims);
+    inner.append(claims);
   }
-  card.append(evidence);
-  return card;
+  body.append(inner);
+  details.append(body);
+  return details;
 }
 
 function renderBriefing(b) {
   const out = [];
+
+  // Case header: headline, generated-at meta, at-a-glance stat tiles, and
+  // (folded in below the tiles) the coverage strip — what this run could and
+  // couldn't see is context for those numbers, not a separate topic.
+  const caseHead = el("section", { class: "case-head" });
+  caseHead.append(el("p", { class: "eyebrow", text: "Briefing" }));
+  caseHead.append(el("h2", { class: "serif", text: b.topic_id }));
+  caseHead.append(el("p", { class: "meta mono", text: `generated ${fmtTime(b.generated_at)}` }));
+  const stats = el("div", { class: "stat-row" });
+  for (
+    const [n, l] of [
+      [b.narratives.length, "narrative(s)"],
+      [b.total_items, "item(s)"],
+      [b.total_claims, "claim(s)"],
+    ]
+  ) {
+    stats.append(
+      el(
+        "div",
+        { class: "stat" },
+        el("div", { class: "n mono", text: String(n) }),
+        el("div", { class: "l", text: l }),
+      ),
+    );
+  }
+  caseHead.append(stats);
+  caseHead.append(renderCoverage(b.coverage));
+  out.push(caseHead);
+
   out.push(
     el(
-      "h2",
-      { class: "section-title" },
-      el("span", { class: "p", text: `briefing · ${b.topic_id} · ` }),
-      `${b.narratives.length} narrative(s) · ${b.total_items} item(s) · ${b.total_claims} claim(s) · generated ${
-        fmtTime(b.generated_at)
-      }`,
+      "div",
+      { class: "section-head" },
+      el("h3", { text: "What's happening" }),
+      el("span", { class: "cap", text: "— description only, never a verdict" }),
     ),
   );
-
-  // A jump list, shown only when there's more than one narrative to jump
-  // between — otherwise it's dead weight above the fold.
-  if (b.narratives.length > 1) {
-    const list = el("ol");
-    b.narratives.forEach((n, i) => {
-      list.append(
-        el(
-          "li",
-          {},
-          el("a", {
-            href: `#narrative-${n.cluster_id}`,
-            text: n.label || `Narrative #${i + 1}`,
-          }),
-        ),
-      );
-    });
-    out.push(el("nav", { class: "narrative-toc", "aria-label": "Jump to narrative" }, list));
-  }
-
-  out.push(renderCoverage(b.coverage));
-
   const overview = el("section", { class: "card overview" });
-  overview.append(
-    el("h2", { class: "section-title", text: "Overview — description only, never a verdict" }),
-  );
   overview.append(
     b.overview ? el("p", { text: b.overview }) : el("p", {
       class: "placeholder",
@@ -404,13 +442,15 @@ function renderBriefing(b) {
   // independent of this run's narratives — kept structurally separate from
   // claims, which are pulled from the discourse and may be wrong.
   if (b.background_facts.length) {
-    const background = el("section", { class: "card background" });
-    background.append(
-      el("h2", {
-        class: "section-title",
-        text: "Background — general context, not specific to this run",
-      }),
+    out.push(
+      el(
+        "div",
+        { class: "section-head" },
+        el("h3", { text: "Background" }),
+        el("span", { class: "cap", text: "— general context, not specific to this run" }),
+      ),
     );
+    const background = el("section", { class: "card background" });
     for (const f of b.background_facts) {
       const item = el("div", { class: "background-fact" });
       item.append(el("p", { class: "text", text: f.text }));
@@ -423,12 +463,15 @@ function renderBriefing(b) {
   }
 
   out.push(
-    el("h2", {
-      class: "section-title",
-      text: "Narratives — ranked by velocity (rate of change, not volume, shown as " +
-        "hot/active/quiet); relevance is shown as a match-strength bucket — hover either " +
-        "for the raw number",
-    }),
+    el(
+      "div",
+      { class: "section-head" },
+      el("h3", { text: "Narratives" }),
+      el("span", {
+        class: "cap",
+        text: "— ranked by velocity (rate of change), not raw volume",
+      }),
+    ),
   );
   if (b.narratives.length === 0) {
     out.push(
