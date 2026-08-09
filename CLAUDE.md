@@ -100,6 +100,27 @@ Headed for a multi-user hosted deployment (droplet, signups), so we overrode the
     `suggest-fields`, which works sight-unseen.
   - Both are wired into the topic manager UI (index.html/app.js) as "Suggest ... with Claude"
     buttons; suggestions render as reviewable cards/rows, never auto-applied to the saved topic.
+- **Velocity-gaming fix + exclude-list visibility (2026-08-09)**, found by pulling the same thread:
+  a `data-centers` briefing's top-ranked narrative was an unrelated earthquake-alert bot's 3-post
+  burst (3.0/hr) outranking a well-corroborated, multi-source story, because raw items/hour rewards
+  a burst of reposts exactly as much as genuine independent coverage.
+  - `src/analysis/cluster.ts`'s `distinctVoiceTimestamps()` collapses items to one (earliest)
+    timestamp per "voice" before scoring velocity — same author, or near-duplicate embeddings
+    (`DUPLICATE_VOICE_SIMILARITY = 0.93`, stricter than the 0.78 clustering threshold) across
+    different accounts (translation/syndication reposts). Verified against the real `briefTopic`
+    pipeline: the burst's velocity drops from what would have been 3.0/hr to 1.0/hr, matching a
+    single genuine voice — broad, multi-author coverage is no longer punished for being spread out.
+  - The other half of "how do I know if I'm over-excluding": `retrieveForAnalysis`
+    (`src/corpus/store.ts`) now reports what a topic's own exclude list actually dropped this run —
+    count + a capped sample with the matched term (`ExcludedSample`/`AnalysisRetrieval`, `ports.ts`)
+    — threaded through `CoverageReport.excluded` into the same coverage strip that already shows
+    "what this run couldn't see" (`renderCoverage`, app.js/app.css): a self-authored exclude list is
+    the same kind of gap P1 already exists to surface, just self-inflicted instead of a source being
+    unreachable.
+  - A "Not relevant? Quick-exclude" control on every narrative in the briefing view
+    (`quickExcludeControl`, app.js) — editable before saving, `PUT`s directly to the topic's exclude
+    list. Deliberately _not_ draft-and-approve like the topic-assist suggestions above: this is the
+    user's own explicit call on a specific narrative already in front of them, not an AI guess.
 
 ## Source rules
 
