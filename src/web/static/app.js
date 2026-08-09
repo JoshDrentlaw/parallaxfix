@@ -522,6 +522,33 @@ async function runUpdate() {
   }
 }
 
+// Cost-conscious escape hatch from the merged "Update briefing" action above:
+// refreshes the corpus without ever reaching the paid Haiku/Sonnet step, so a
+// user can poll sources on their own schedule and only pay for analysis when
+// they actually want a briefing.
+async function runGatherOnly() {
+  const btn = $("#gather-only-btn");
+  const status = $("#gather-only-status");
+  const body = requestBody();
+  btn.disabled = true;
+  $("#update-btn").disabled = true;
+  setStatus(status, "gathering…");
+  try {
+    const { coverage } = await post("api/gather", body);
+    const total = Object.values(coverage.items_per_source).reduce((a, b) => a + b, 0);
+    setStatus(
+      status,
+      `gathered ${total} item(s) across ${coverage.sources_queried.length} source(s)`,
+      true,
+    );
+  } catch (err) {
+    setStatus(status, err.message, false);
+  } finally {
+    btn.disabled = false;
+    $("#update-btn").disabled = false;
+  }
+}
+
 // ── briefings library (Track A #5) — past briefings for a saved topic. Scoped
 //    to saved topics only: their id is always the slug saveTopic() persisted,
 //    matching briefing.topic_id exactly; an ad hoc topic's id is built from
@@ -551,6 +578,7 @@ async function loadBriefingsLibrary(topicId) {
   }
   try {
     const list = await (await fetch(`api/topics/${encodeURIComponent(topicId)}/briefings`)).json();
+    if (!isCurrentEditTopic(topicId)) return; // user switched topics while this was in flight
     if (!Array.isArray(list) || list.length === 0) {
       section.hidden = true;
       return;
@@ -560,6 +588,7 @@ async function loadBriefingsLibrary(topicId) {
     );
     section.hidden = false;
   } catch {
+    if (!isCurrentEditTopic(topicId)) return;
     section.hidden = true;
   }
 }
@@ -761,6 +790,15 @@ async function createNewTopic() {
 // -- "edit topic" panel: reads/writes the topic currently selected in the
 //    main controls' dropdown; feed add/remove persist immediately. --
 
+// #topic-select is the single source of truth for "which topic is being
+// edited right now." The loaders below are async and fire on every topic
+// switch; without this check, a slow response for a topic the user has
+// since navigated away from can land after a faster one and overwrite it
+// with stale data.
+function isCurrentEditTopic(id) {
+  return $("#topic-select").value === id;
+}
+
 async function loadTopicForEdit(id) {
   const hint = $("#tm-edit-hint");
   const form = $("#tm-edit-form");
@@ -772,6 +810,7 @@ async function loadTopicForEdit(id) {
   }
   try {
     const topic = await (await fetch(`api/topics/${encodeURIComponent(id)}`)).json();
+    if (!isCurrentEditTopic(id)) return;
     $("#tm-edit-keywords").value = topic.keywords.join(", ");
     $("#tm-edit-entities").value = topic.entities.join(", ");
     $("#tm-edit-description").value = topic.description;
@@ -786,6 +825,7 @@ async function loadTopicForEdit(id) {
     loadTopicTags(id);
     loadTopicFacts(id);
   } catch {
+    if (!isCurrentEditTopic(id)) return;
     form.hidden = true;
     hint.hidden = false;
     hint.textContent = `Could not load "${id}".`;
@@ -875,26 +915,32 @@ function renderTagListUI(ul, tags, onRemove) {
   );
 }
 
-function factListItem(fact, onRemove) {
+// One "fact card" <li>: text + meta line + action buttons — the shared shape
+// for attached facts, tag-based suggestions, and auto-drafted candidates.
+// `buttons` is [{ label, title?, onClick }, ...].
+function factCard(text, meta, buttons = []) {
   const li = el(
     "li",
     { class: "fact-item" },
     el(
       "div",
       { class: "fact-item-body" },
-      el("p", { class: "fact-text", text: fact.text }),
-      el("p", {
-        class: "fact-meta",
-        text: `${fact.source_name} · as of ${fact.as_of.slice(0, 10)}`,
-      }),
+      el("p", { class: "fact-text", text }),
+      el("p", { class: "fact-meta", text: meta }),
     ),
   );
-  if (onRemove) {
-    const btn = el("button", { type: "button", text: "×", title: "detach this fact" });
-    btn.addEventListener("click", onRemove);
+  for (const { label, title, onClick } of buttons) {
+    const btn = el("button", { type: "button", text: label, title });
+    btn.addEventListener("click", onClick);
     li.append(btn);
   }
   return li;
+}
+
+function factListItem(fact, onRemove) {
+  const meta = `${fact.source_name} · as of ${fact.as_of.slice(0, 10)}`;
+  const buttons = onRemove ? [{ label: "×", title: "detach this fact", onClick: onRemove }] : [];
+  return factCard(fact.text, meta, buttons);
 }
 
 function renderFactListUI(ul, facts, onRemove) {
@@ -921,8 +967,10 @@ async function loadTopicTags(id) {
   const ul = $("#tm-edit-tag-list");
   try {
     const tags = await (await fetch(`api/topics/${encodeURIComponent(id)}/tags`)).json();
+    if (!isCurrentEditTopic(id)) return;
     renderTagListUI(ul, tags, (tagId) => removeEditTag(id, tagId));
   } catch {
+    if (!isCurrentEditTopic(id)) return;
     ul.replaceChildren(el("li", { class: "empty", text: "tags unavailable — set DATABASE_URL" }));
   }
   await loadAllTags();
@@ -975,8 +1023,10 @@ async function loadTopicFacts(id) {
   const ul = $("#tm-edit-fact-list");
   try {
     const facts = await (await fetch(`api/topics/${encodeURIComponent(id)}/facts`)).json();
+    if (!isCurrentEditTopic(id)) return;
     renderFactListUI(ul, facts, (factId) => removeEditFact(id, factId));
   } catch {
+    if (!isCurrentEditTopic(id)) return;
     ul.replaceChildren(el("li", { class: "empty", text: "facts unavailable — set DATABASE_URL" }));
   }
   await loadFactSuggestions(id);
@@ -989,35 +1039,25 @@ async function loadFactSuggestions(id) {
     const suggestions = await (
       await fetch(`api/topics/${encodeURIComponent(id)}/fact-suggestions`)
     ).json();
+    if (!isCurrentEditTopic(id)) return;
     if (!suggestions.length) {
       box.replaceChildren();
       return;
     }
     const list = el("ul", { class: "fact-list" });
     for (const f of suggestions) {
-      const li = el(
-        "li",
-        { class: "fact-item" },
-        el(
-          "div",
-          { class: "fact-item-body" },
-          el("p", { class: "fact-text", text: f.text }),
-          el("p", {
-            class: "fact-meta",
-            text: `${f.source_name} · as of ${f.as_of.slice(0, 10)}`,
-          }),
-        ),
-      );
-      const btn = el("button", { type: "button", text: "+ attach" });
-      btn.addEventListener("click", () => attachSuggestedFact(id, f.id));
-      li.append(btn);
-      list.append(li);
+      list.append(factCard(
+        f.text,
+        `${f.source_name} · as of ${f.as_of.slice(0, 10)}`,
+        [{ label: "+ attach", onClick: () => attachSuggestedFact(id, f.id) }],
+      ));
     }
     box.replaceChildren(
       el("p", { class: "tm-subtitle", text: "Suggested (shares a tag with this topic)" }),
       list,
     );
   } catch {
+    if (!isCurrentEditTopic(id)) return;
     box.replaceChildren();
   }
 }
@@ -1078,25 +1118,14 @@ async function removeEditFact(id, factId) {
 //    "+ New background fact" form uses. ───────────────────────────────────
 
 function draftFactItem(draft, onApprove, onDiscard) {
-  const li = el(
-    "li",
-    { class: "fact-item" },
-    el(
-      "div",
-      { class: "fact-item-body" },
-      el("p", { class: "fact-text", text: draft.text }),
-      el("p", {
-        class: "fact-meta",
-        text: `${draft.source_name} · as of ${draft.as_of} · ${draft.source_url}`,
-      }),
-    ),
+  return factCard(
+    draft.text,
+    `${draft.source_name} · as of ${draft.as_of} · ${draft.source_url}`,
+    [
+      { label: "Approve & attach", onClick: onApprove },
+      { label: "Discard", onClick: onDiscard },
+    ],
   );
-  const approveBtn = el("button", { type: "button", text: "Approve & attach" });
-  approveBtn.addEventListener("click", onApprove);
-  const discardBtn = el("button", { type: "button", text: "Discard" });
-  discardBtn.addEventListener("click", onDiscard);
-  li.append(approveBtn, discardBtn);
-  return li;
 }
 
 async function draftBackgroundFacts() {
@@ -1218,6 +1247,7 @@ loadHomeView();
 initTopicManager();
 initInfoChips();
 $("#update-btn").addEventListener("click", runUpdate);
+$("#gather-only-btn").addEventListener("click", runGatherOnly);
 $("#keywords").addEventListener("keydown", (e) => {
   if (e.key === "Enter") runUpdate();
 });

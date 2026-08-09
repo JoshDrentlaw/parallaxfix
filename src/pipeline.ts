@@ -117,6 +117,15 @@ export interface BriefOptions {
   now?: Date;
   /** Minimum-similarity floor for retrieval; omit to use the corpus's default (P1). */
   minSimilarity?: number;
+  /**
+   * Persist this run to the briefings library (Track A #5). Defaults to
+   * true; callers running an ad hoc topic (id built from free-text keywords,
+   * not a saved topic file) should pass false — otherwise every one-off
+   * query a user tries before saving a topic accumulates forever in
+   * BriefingStore.latestPerTopic(), which backs the "what's moving" home
+   * view (Track A #6) and is documented there as scoped to saved topics.
+   */
+  saveToLibrary?: boolean;
 }
 
 /**
@@ -222,17 +231,22 @@ export async function briefTopic(
 
   // Track A #5: persist to the briefings library so past runs stay
   // browsable ("yesterday vs. today") instead of vanishing when the tab
-  // closes. Best-effort, same reasoning as background facts above.
-  const store = new BriefingStore(ctx.databaseUrl);
-  try {
-    await store.init();
-    await store.save(briefing);
-  } catch (err) {
-    progress(
-      `could not save to the briefings library (${err instanceof Error ? err.message : err})`,
-    );
-  } finally {
-    await store.close();
+  // closes. Best-effort, same reasoning as background facts above. Skipped
+  // for ad hoc topics (see BriefOptions.saveToLibrary) — an unsaved,
+  // free-text query has no stable topic_id to browse back to and would
+  // otherwise accumulate forever in the "what's moving" home view.
+  if (opts.saveToLibrary ?? true) {
+    const store = new BriefingStore(ctx.databaseUrl);
+    try {
+      await store.init();
+      await store.save(briefing);
+    } catch (err) {
+      progress(
+        `could not save to the briefings library (${err instanceof Error ? err.message : err})`,
+      );
+    } finally {
+      await store.close();
+    }
   }
 
   return briefing;

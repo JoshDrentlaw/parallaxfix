@@ -46,7 +46,12 @@ const DISABLED_INGEST_STATUS: IngestStatus = {
 export interface WebDeps {
   databaseUrl?: () => string | undefined;
   gather?: (topic: TopicDefinition, since?: Date, until?: Date) => Promise<CoverageReport>;
-  brief?: (topic: TopicDefinition, k: number, minSimilarity?: number) => Promise<Briefing>;
+  brief?: (
+    topic: TopicDefinition,
+    k: number,
+    minSimilarity?: number,
+    saveToLibrary?: boolean,
+  ) => Promise<Briefing>;
   /** Where saved topics live. Defaults to `TOPICS_DIR`; tests point this at a temp dir. */
   topicsDir?: string;
   /** The always-on Bluesky ingest service's status, for /api/status. Defaults to "disabled". */
@@ -329,7 +334,7 @@ async function addTopicFact(databaseUrl: string, topicId: string, req: Request):
     await facts.init();
     let fact: BackgroundFact;
     if (typeof body.factId === "string" && body.factId.trim()) {
-      const found = (await facts.listAllFacts()).find((f) => f.id === body.factId);
+      const found = await facts.getFact(body.factId);
       if (!found) return errorJson(404, `no fact "${body.factId}"`);
       fact = found;
     } else {
@@ -415,7 +420,7 @@ async function addTopicTag(databaseUrl: string, topicId: string, req: Request): 
     await facts.init();
     let tag: Tag;
     if (typeof body.tagId === "string" && body.tagId.trim()) {
-      const found = (await facts.listTags()).find((t) => t.id === body.tagId);
+      const found = await facts.getTag(body.tagId);
       if (!found) return errorJson(404, `no tag "${body.tagId}"`);
       tag = found;
     } else {
@@ -545,11 +550,11 @@ export function createHandler(deps: WebDeps = {}): (req: Request) => Promise<Res
   });
 
   const brief = deps.brief ??
-    (async (topic: TopicDefinition, k: number, minSimilarity?: number) => {
+    (async (topic: TopicDefinition, k: number, minSimilarity?: number, saveToLibrary?: boolean) => {
       const db = requireDb();
       if (db instanceof Response) throw db;
       const { briefTopic } = await import("../pipeline.ts");
-      return await briefTopic(topic, { databaseUrl: db }, { k, minSimilarity });
+      return await briefTopic(topic, { databaseUrl: db }, { k, minSimilarity, saveToLibrary });
     });
 
   const topicsDir = deps.topicsDir ?? TOPICS_DIR;
@@ -714,6 +719,7 @@ export function createHandler(deps: WebDeps = {}): (req: Request) => Promise<Res
           return errorJson(404, `no saved topic "${body.topicId}" in ${topicsDir}/`);
         }
         if (!topic) return errorJson(400, "provide topicId (saved) or keywords (comma-separated)");
+        const isSavedTopic = typeof body.topicId === "string" && body.topicId.trim() !== "";
 
         if (pathname === "/api/gather") {
           const since = typeof body.since === "string" && body.since
@@ -728,7 +734,7 @@ export function createHandler(deps: WebDeps = {}): (req: Request) => Promise<Res
         const minSimilarity = body.minSimilarity !== undefined && body.minSimilarity !== ""
           ? Number(body.minSimilarity)
           : undefined;
-        return json(await brief(topic, k, minSimilarity));
+        return json(await brief(topic, k, minSimilarity, isSavedTopic));
       }
 
       return errorJson(404, `no route: ${req.method} ${pathname}`);
