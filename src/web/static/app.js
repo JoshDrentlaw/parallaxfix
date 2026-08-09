@@ -1557,13 +1557,22 @@ function histogramBins(values, binCount, domainMin, domainMax) {
 }
 
 /** Renders a row of bars into `container`; `classify(bin)` returns the pill class each bar borrows its color from. */
+// Bar height is a CSS class (.h-0 .. .h-100 in steps of 5, defined in
+// app.css), not an inline style — the strict CSP (style-src 'self', no
+// unsafe-inline, no nonce; see SECURITY.md §5) blocks inline style
+// attributes outright, silently. A per-bar style="height: N%" here would
+// never actually apply; every bar would sit at its 2px CSS floor forever.
+function heightBucketClass(pct) {
+  const bucket = Math.min(100, Math.max(0, Math.round(pct / 5) * 5));
+  return `h-${bucket}`;
+}
+
 function renderHistogramBars(container, bins, classify) {
   const peak = Math.max(1, ...bins.map((b) => b.count));
   container.replaceChildren(
     ...bins.map((bin) =>
       el("div", {
-        class: `hist-bar ${classify(bin)}`,
-        style: `height: ${Math.round((bin.count / peak) * 100)}%`,
+        class: `hist-bar ${classify(bin)} ${heightBucketClass((bin.count / peak) * 100)}`,
         title: `${bin.from.toFixed(2)}–${bin.to.toFixed(2)}: ${bin.count}`,
       })
     ),
