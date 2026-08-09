@@ -1,5 +1,6 @@
 import { assert, assertEquals } from "@std/assert";
-import type { EmbeddingPort, Item } from "../src/ports.ts";
+import postgres from "postgres";
+import type { EmbeddingPort, Item, RerankEmbeddingPort } from "../src/ports.ts";
 import { adHocTopic, buildTopicQuery, isExcluded, slugifyTopicId } from "../src/ingestion/topic.ts";
 
 // ── pure helpers (no DB) ──────────────────────────────────────────────────────
@@ -57,6 +58,7 @@ Deno.test("slugifyTopicId: filesystem-safe slugs", () => {
  */
 class FakeEmbedder implements EmbeddingPort {
   readonly dimensions = 384;
+  readonly model = "fake-local-v1";
 
   #vec(text: string): number[] {
     const v = new Array(this.dimensions).fill(0);
@@ -75,6 +77,52 @@ class FakeEmbedder implements EmbeddingPort {
   embedQuery(text: string): Promise<number[]> {
     return Promise.resolve(this.#vec(text));
   }
+}
+
+/**
+ * Fake rerank-tier embedder (RerankEmbeddingPort) — same shape as
+ * FakeEmbedder but a distinct hash constant (17 vs 31) so its vectors are
+ * genuinely different from the local embedder's, and it tracks every text
+ * it's asked to embed so tests can assert on *when* it gets called (never
+ * for an excluded item; never twice for the same cached item).
+ */
+class FakeRerankEmbedder implements RerankEmbeddingPort {
+  readonly model: string;
+  readonly embedCalls: string[] = [];
+
+  constructor(model = "fake-rerank-v1") {
+    this.model = model;
+  }
+
+  #vec(text: string): number[] {
+    const dims = 16;
+    const v = new Array(dims).fill(0);
+    for (const tok of text.toLowerCase().split(/\W+/).filter(Boolean)) {
+      let h = 0;
+      for (let i = 0; i < tok.length; i++) h = (h * 17 + tok.charCodeAt(i)) >>> 0;
+      v[h % dims] += 1;
+    }
+    const norm = Math.hypot(...v) || 1;
+    return v.map((x) => x / norm);
+  }
+
+  embed(texts: string[]): Promise<number[][]> {
+    this.embedCalls.push(...texts);
+    return Promise.resolve(texts.map((t) => this.#vec(t)));
+  }
+  embedQuery(text: string): Promise<number[]> {
+    return Promise.resolve(this.#vec(text));
+  }
+}
+
+function cosineSimilarity(a: number[], b: number[]): number {
+  let dot = 0, na = 0, nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
+  }
+  return dot / (Math.sqrt(na) * Math.sqrt(nb));
 }
 
 const DATABASE_URL = Deno.env.get("DATABASE_URL");
@@ -150,6 +198,148 @@ Deno.test({
       assert(forAnalysis.every((r) => typeof r.similarity === "number"));
     } finally {
       await corpus.close();
+    }
+  },
+});
+
+Deno.test({
+  name: "PgCorpus: append records model provenance; init() backfills pre-existing rows",
+  ignore: !DATABASE_URL,
+  async fn() {
+    const { PgCorpus } = await import("../src/corpus/store.ts");
+    const embedder = new FakeEmbedder();
+    const corpus = new PgCorpus({ databaseUrl: DATABASE_URL!, embedder });
+    const sql = postgres(DATABASE_URL!, { onnotice: () => {} });
+    try {
+      await corpus.init();
+      await corpus.clear();
+
+      await corpus.append([item("a", "Wildfire near Riverside")]);
+      const [row] = await sql`SELECT model FROM items WHERE id = 'a'`;
+      assertEquals(row.model, embedder.model, "append() records the embedder's model");
+
+      // Simulate a row from before the `model` column existed.
+      await sql`UPDATE items SET model = NULL WHERE id = 'a'`;
+      const [nulled] = await sql`SELECT model FROM items WHERE id = 'a'`;
+      assertEquals(nulled.model, null);
+
+      // init() is called on every corpus open (see PgCorpus.init doc) — it
+      // should backfill, not just create tables.
+      await corpus.init();
+      const [backfilled] = await sql`SELECT model FROM items WHERE id = 'a'`;
+      assertEquals(backfilled.model, embedder.model, "init() backfills a null model");
+    } finally {
+      await corpus.close();
+      await sql.end();
+    }
+  },
+});
+
+Deno.test({
+  name: "PgCorpus.retrieveForAnalysis: without a rerank embedder, behavior is unchanged",
+  ignore: !DATABASE_URL,
+  async fn() {
+    const { PgCorpus } = await import("../src/corpus/store.ts");
+    const corpus = new PgCorpus({ databaseUrl: DATABASE_URL!, embedder: new FakeEmbedder() });
+    try {
+      await corpus.init();
+      await corpus.clear();
+      await corpus.append([item("a", "Wildfire near Riverside forces evacuations")]);
+
+      const topic = adHocTopic(["wildfire", "riverside"]);
+      topic.description = "wildfire evacuations near riverside";
+      const results = await corpus.retrieveForAnalysis(topic, 10);
+      assertEquals(results.map((r) => r.item.id), ["a"]);
+    } finally {
+      await corpus.close();
+    }
+  },
+});
+
+Deno.test({
+  name: "PgCorpus.retrieveForAnalysis: reranks with the higher-tier embedder, caches the vector, " +
+    "never re-embeds a cached (model-matching) item, skips excluded items entirely, and " +
+    "re-embeds when the cached model is stale",
+  ignore: !DATABASE_URL,
+  async fn() {
+    const { PgCorpus } = await import("../src/corpus/store.ts");
+    const localEmbedder = new FakeEmbedder();
+    const rerankEmbedder = new FakeRerankEmbedder();
+    const corpus = new PgCorpus({
+      databaseUrl: DATABASE_URL!,
+      embedder: localEmbedder,
+      rerankEmbedder,
+      minSimilarity: -1, // isolate reranking from the floor for this test
+    });
+    const sql = postgres(DATABASE_URL!, { onnotice: () => {} });
+    try {
+      await corpus.init();
+      await corpus.clear();
+
+      const relevant = item("a", "Wildfire near Riverside forces evacuations");
+      const excluded = item("b", "Riverside wildfire basketball charity game");
+      await corpus.append([relevant, excluded]);
+
+      const topic = { ...adHocTopic(["wildfire", "riverside"]), exclude: ["basketball"] };
+      topic.description = "wildfire evacuations near riverside";
+
+      const first = await corpus.retrieveForAnalysis(topic, 10);
+      assertEquals(
+        first.map((r) => r.item.id),
+        ["a"],
+        "excluded item never reaches the rerank tier",
+      );
+      assertEquals(
+        rerankEmbedder.embedCalls,
+        [relevant.text],
+        "only the non-excluded candidate is sent",
+      );
+
+      // The returned score is the rerank tier's, not the local tier's.
+      const [qvec, [avec]] = await Promise.all([
+        rerankEmbedder.embedQuery(buildTopicQuery(topic)),
+        rerankEmbedder.embed([relevant.text]),
+      ]);
+      const expected = cosineSimilarity(qvec, avec);
+      assert(
+        Math.abs(first[0].similarity - expected) < 1e-9,
+        `similarity should be the rerank score (${expected}), got ${first[0].similarity}`,
+      );
+
+      // Cached on the row.
+      const [cached] = await sql`SELECT analyzed_model FROM items WHERE id = 'a'`;
+      assertEquals(cached.analyzed_model, rerankEmbedder.model);
+
+      // A second run reuses the cached vector — no new embed() calls.
+      rerankEmbedder.embedCalls.length = 0;
+      await corpus.retrieveForAnalysis(topic, 10);
+      assertEquals(
+        rerankEmbedder.embedCalls,
+        [],
+        "a cached, model-matching item is never re-embedded",
+      );
+
+      // A model change invalidates the cache — re-embeds on the next run.
+      const newerRerankEmbedder = new FakeRerankEmbedder("fake-rerank-v2");
+      const corpus2 = new PgCorpus({
+        databaseUrl: DATABASE_URL!,
+        embedder: localEmbedder,
+        rerankEmbedder: newerRerankEmbedder,
+        minSimilarity: -1,
+      });
+      try {
+        await corpus2.retrieveForAnalysis(topic, 10);
+        assertEquals(
+          newerRerankEmbedder.embedCalls,
+          [relevant.text],
+          "a stale (model-mismatched) cached vector is re-embedded",
+        );
+      } finally {
+        await corpus2.close();
+      }
+    } finally {
+      await corpus.close();
+      await sql.end();
     }
   },
 });

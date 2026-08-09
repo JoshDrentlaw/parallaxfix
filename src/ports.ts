@@ -130,9 +130,27 @@ export interface CorpusPort {
 export interface EmbeddingPort {
   /** Vector length this embedder produces (must match the DB vector column). */
   readonly dimensions: number;
+  /** Identifies which model produced a vector — recorded alongside every stored
+   *  embedding so a future model swap is an explicit re-embed, never a silent
+   *  mix of incompatible vector spaces. */
+  readonly model: string;
   /** Embed documents/items for storage. */
   embed(texts: string[]): Promise<number[][]>;
   /** Embed a search query; models like bge prepend a retrieval instruction. */
+  embedQuery(text: string): Promise<number[]>;
+}
+
+/**
+ * A second, higher-quality embedding tier used only to rerank an already-
+ * narrow retrieval candidate pool — never the full corpus. Deliberately not
+ * `EmbeddingPort`: that port sizes the DB's vector column at storage time
+ * (`dimensions`), while a rerank tier's vectors live in a dimension-less
+ * column precisely so swapping models is a re-embed, not a schema change.
+ */
+export interface RerankEmbeddingPort {
+  /** Recorded on every cached rerank vector; a mismatch means "stale, re-embed." */
+  readonly model: string;
+  embed(texts: string[]): Promise<number[][]>;
   embedQuery(text: string): Promise<number[]>;
 }
 
