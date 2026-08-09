@@ -37,6 +37,68 @@
         <ul id="home-view-list" class="home-view-list"></ul>
       </section>
 
+      <details id="tuning-card" class="card">
+        <summary>
+          Tuning — bucket thresholds
+          <span class="info-chip-wrap">
+            <button
+              type="button"
+              class="info-chip"
+              aria-expanded="false"
+              aria-label="What is this field for?"
+            >
+              ?
+            </button>
+            <span class="info-popover" role="tooltip" hidden
+            >Hot/active/quiet and strong/plausible/weak are cutoffs on raw numbers, not fixed
+              truths. These bars show every narrative's actual velocity and relevance across every
+              briefing you've ever generated — set the cutoffs where that real distribution
+              separates, not by guessing.</span>
+          </span>
+        </summary>
+        <div class="tuning-blocks">
+          <div class="tuning-block">
+            <h4>Velocity (items/hour) — hot / active / quiet</h4>
+            <div
+              id="tuning-hist-velocity"
+              class="histogram"
+              role="img"
+              aria-label="Distribution of narrative velocity"
+            >
+            </div>
+          </div>
+          <div class="tuning-block">
+            <h4>Relevance (similarity score) — strong / plausible / weak</h4>
+            <div
+              id="tuning-hist-relevance"
+              class="histogram"
+              role="img"
+              aria-label="Distribution of narrative relevance"
+            >
+            </div>
+          </div>
+        </div>
+        <p id="tuning-hist-count" class="tuning-hist-count"></p>
+        <div class="tuning-fields">
+          <label class="narrow">Hot ≥
+            <input id="tuning-hot" type="number" step="0.1" min="0">
+          </label>
+          <label class="narrow">Strong ≥
+            <input id="tuning-strong" type="number" step="0.01" min="0" max="1">
+          </label>
+          <label class="narrow">Active ≥
+            <input id="tuning-active" type="number" step="0.1" min="0">
+          </label>
+          <label class="narrow">Plausible ≥
+            <input id="tuning-plausible" type="number" step="0.01" min="0" max="1">
+          </label>
+        </div>
+        <div class="row actions">
+          <button id="tuning-save" type="button" class="primary">Save thresholds</button>
+          <span id="tuning-status" class="tm-status"></span>
+        </div>
+      </details>
+
       <details id="topic-manager" class="card">
         <summary>Manage topics &amp; RSS feeds</summary>
         <div class="tm-body">

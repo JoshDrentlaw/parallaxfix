@@ -63,6 +63,36 @@ Deno.test({
 });
 
 Deno.test({
+  name: "BriefingStore: allNarrativeScores unnests velocity/relevance across every stored briefing",
+  ignore: !DATABASE_URL,
+  async fn() {
+    const { BriefingStore } = await import("../src/briefing/store.ts");
+    const store = new BriefingStore(DATABASE_URL!);
+    try {
+      await store.init();
+      await store.clear();
+
+      const a = { ...sampleBriefing(), topic_id: "topic-a" };
+      const b = { ...sampleBriefing(), topic_id: "topic-b" };
+      await store.save(a);
+      await store.save(b);
+
+      const scores = await store.allNarrativeScores();
+      // sampleBriefing() has 2 narratives; saved under two different topics.
+      assertEquals(scores.length, 4);
+      for (const s of scores) {
+        assertEquals(typeof s.velocity, "number");
+        assertEquals(typeof s.relevance, "number");
+      }
+      const velocities = scores.map((s) => s.velocity).sort((x, y) => x - y);
+      assertEquals(velocities, [5.6, 5.6, 14.2, 14.2]);
+    } finally {
+      await store.close();
+    }
+  },
+});
+
+Deno.test({
   name: "BriefingStore: latestPerTopic returns one row per topic, the most recent",
   ignore: !DATABASE_URL,
   async fn() {
