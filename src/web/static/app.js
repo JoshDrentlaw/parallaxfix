@@ -1508,23 +1508,24 @@ function initInfoChips() {
       const popover = chip.nextElementSibling;
       const willOpen = popover.hidden;
       closeInfoChips();
-      popover.style.left = "";
       popover.hidden = !willOpen;
       chip.setAttribute("aria-expanded", String(willOpen));
       // The popover defaults to left:0 relative to its chip — fine for a
-      // chip with room to its right, but a chip near either screen edge
-      // (e.g. "Topic name", flush left) would otherwise push it off-screen.
-      // Nudge it back on-screen with a pixel offset rather than a fixed
-      // left/right side, since either fixed side can overflow depending on
-      // where the chip sits.
+      // chip with room to its right, but a chip near the right edge would
+      // otherwise push it off-screen. Flip to right:0 (grows leftward
+      // instead) via a CSS class rather than a computed pixel offset — the
+      // page's CSP (style-src 'self', no unsafe-inline/nonce) silently
+      // drops inline styles, so an arbitrary offset can never actually
+      // apply (see the histogram bar fix for the same issue). A two-way
+      // flip can't match a precise pixel clamp, but combined with the
+      // popover's own max-width (min(18rem, 100vw - 2.5rem)) it keeps
+      // things on-screen for every chip position that matters in practice.
       if (willOpen) {
         const margin = 12;
-        const wrapLeft = chip.parentElement.getBoundingClientRect().left;
+        const wrapRect = chip.parentElement.getBoundingClientRect();
         const width = popover.getBoundingClientRect().width;
-        const maxLeft = globalThis.innerWidth - margin - width;
-        const clampedLeft = Math.max(margin, Math.min(wrapLeft, maxLeft));
-        const offset = clampedLeft - wrapLeft;
-        if (offset !== 0) popover.style.left = `${offset}px`;
+        const overflowsRight = wrapRect.left + width + margin > globalThis.innerWidth;
+        popover.classList.toggle("align-end", overflowsRight);
       }
       return;
     }

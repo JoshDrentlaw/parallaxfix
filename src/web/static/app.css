@@ -1054,6 +1054,12 @@ code {
   font-size: 0.78rem;
   box-shadow: var(--shadow);
 }
+/* Right-edge flip (see initInfoChips in app.js) — CSS class instead of a
+   computed inline offset, which the CSP silently blocks. */
+.info-popover.align-end {
+  left: auto;
+  right: 0;
+}
 
 button.danger {
   border-color: var(--bad);
