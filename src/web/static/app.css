@@ -201,7 +201,8 @@ label {
 }
 
 input,
-select {
+select,
+textarea {
   background: var(--surface-2);
   color: var(--text);
   border: 1px solid var(--border);
@@ -211,10 +212,17 @@ select {
 }
 input:focus,
 select:focus,
+textarea:focus,
 button:focus-visible,
 #results:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  line-height: 1.4;
 }
 
 button {
