@@ -576,6 +576,88 @@ async function draftTopicFacts(id: string, topicsDir: string): Promise<Response>
 }
 
 /**
+ * POST /api/topics/suggest-fields — LLM-drafted candidate keywords/entities/
+ * exclude terms from a plain-English description (topic-assist, draft-and-
+ * approve). Never persists anything — the client reviews and folds accepted
+ * terms into POST/PUT /api/topics the same way typing them by hand would.
+ * No topic needs to exist yet — this is meant to run during topic creation,
+ * before there's an id to attach anything to.
+ */
+async function suggestTopicFields(req: Request): Promise<Response> {
+  if (!Deno.env.get("ANTHROPIC_API_KEY")) {
+    return errorJson(503, "ANTHROPIC_API_KEY is not set — topic suggestions need the Claude API");
+  }
+  const body = await readJsonBody<
+    { description?: unknown; keywords?: unknown; entities?: unknown }
+  >(req);
+  if (body instanceof Response) return body;
+  const description = typeof body.description === "string" ? body.description.trim() : "";
+  if (!description) return errorJson(400, "description is required");
+  try {
+    const { AnthropicTopicSuggestions } = await import("../ingestion/suggest.ts");
+    const suggestions = await new AnthropicTopicSuggestions().suggest({
+      description,
+      keywords: parseCommaList(body.keywords),
+      entities: parseCommaList(body.entities),
+    });
+    return json(suggestions);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    return errorJson(502, `suggestion failed: ${reason}`);
+  }
+}
+
+/** Cap on how many weak narratives get sent to the exclude-suggestion prompt, to bound cost/context. */
+const MAX_WEAK_NARRATIVES_FOR_SUGGEST = 40;
+
+/**
+ * POST /api/topics/:id/exclude-suggestions — LLM-drafted candidate exclude
+ * terms mined from the topic's own most recent briefing's low-relevance
+ * ("weak", per the tuned bucket thresholds — src/briefing/thresholds.ts)
+ * narratives. Draft-and-approve only; never writes to the saved topic.
+ */
+async function suggestTopicExcludes(id: string, topicsDir: string, db: string): Promise<Response> {
+  if (!Deno.env.get("ANTHROPIC_API_KEY")) {
+    return errorJson(503, "ANTHROPIC_API_KEY is not set — exclude suggestions need the Claude API");
+  }
+  let topic: TopicDefinition;
+  try {
+    topic = await loadTopic(topicFilePath(id, topicsDir));
+  } catch {
+    return errorJson(404, `no saved topic "${id}" in ${topicsDir}/`);
+  }
+  const briefingStore = new BriefingStore(db);
+  const thresholdStore = new ThresholdStore(db);
+  try {
+    const [summaries, thresholds] = await Promise.all([
+      briefingStore.listForTopic(id, 1),
+      thresholdStore.get(),
+    ]);
+    if (summaries.length === 0) {
+      return errorJson(404, `no briefing yet for topic "${id}" — brief it at least once first`);
+    }
+    const data = await briefingStore.get(summaries[0].id);
+    if (!data) return errorJson(404, `briefing ${summaries[0].id} not found`);
+    const narratives = ((data as unknown as Briefing).narratives ?? []) as Briefing["narratives"];
+    const weak = narratives
+      .filter((n) => n.relevance < thresholds.plausible)
+      .slice(0, MAX_WEAK_NARRATIVES_FOR_SUGGEST);
+    if (weak.length === 0) {
+      return json({ weak_narrative_count: 0, suggestions: [] });
+    }
+    const { AnthropicExcludeSuggestions } = await import("../briefing/exclude_suggest.ts");
+    const suggestions = await new AnthropicExcludeSuggestions().suggestExcludes(topic, weak);
+    return json({ weak_narrative_count: weak.length, suggestions });
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    return errorJson(502, `suggestion failed: ${reason}`);
+  } finally {
+    await briefingStore.close();
+    await thresholdStore.close();
+  }
+}
+
+/**
  * Build the request handler. Dependencies default to the real pipeline
  * (imported lazily so the server starts fast and tests never touch Postgres).
  */
@@ -706,6 +788,20 @@ export function createHandler(deps: WebDeps = {}): (req: Request) => Promise<Res
         const db = requireDb();
         if (db instanceof Response) return db;
         return await suggestTopicFacts(db, id);
+      }
+
+      // Topic-assist: LLM-drafted keyword/entity/exclude vocabulary. Checked
+      // before topicMatch below so "suggest-fields" isn't parsed as a topic id.
+      if (req.method === "POST" && pathname === "/api/topics/suggest-fields") {
+        return await suggestTopicFields(req);
+      }
+
+      const excludeSuggestMatch = pathname.match(/^\/api\/topics\/([^/]+)\/exclude-suggestions$/);
+      if (excludeSuggestMatch && req.method === "POST") {
+        const id = topicIdFromPath(excludeSuggestMatch[1]);
+        const db = requireDb();
+        if (db instanceof Response) return db;
+        return await suggestTopicExcludes(id, topicsDir, db);
       }
 
       const tagsMatch = pathname.match(/^\/api\/topics\/([^/]+)\/tags$/);

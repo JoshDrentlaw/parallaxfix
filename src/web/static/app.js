@@ -827,6 +827,8 @@ async function createNewTopic() {
     newTopicFeeds = [];
     renderNewFeedList();
     renderFeedCheck($("#tm-new-feed-result"), null);
+    $("#tm-new-suggest-result").replaceChildren();
+    setStatus($("#tm-new-suggest-status"), "");
     await loadTopics(created.id);
     await loadTopicForEdit(created.id);
     switchTab("edit");
@@ -870,6 +872,10 @@ async function loadTopicForEdit(id) {
     form.hidden = false;
     $("#tm-edit-fact-drafts").replaceChildren();
     setStatus($("#tm-edit-fact-draft-status"), "");
+    $("#tm-edit-suggest-result").replaceChildren();
+    setStatus($("#tm-edit-suggest-status"), "");
+    $("#tm-edit-exclude-suggestions").replaceChildren();
+    setStatus($("#tm-edit-exclude-suggest-status"), "");
     loadTopicTags(id);
     loadTopicFacts(id);
   } catch {
@@ -1213,6 +1219,171 @@ async function draftBackgroundFacts() {
   }
 }
 
+// ── topic-assist: LLM-drafted keyword/entity/exclude vocabulary. Like the
+//    background-facts auto-draft above, this is draft-and-approve — nothing
+//    is written to the topic until the user clicks an "Add to ..." button,
+//    which merges into the plain text field the manual Save flow already
+//    reads. Exists because a topic's keyword/entity/exclude lists are the
+//    fields hardest to fill in well without already being a domain expert,
+//    unlike the description, which is easy to write regardless. ───────────
+
+function mergeIntoCommaField(selector, values) {
+  const input = $(selector);
+  const existing = input.value.split(",").map((s) => s.trim()).filter(Boolean);
+  const seen = new Set(existing.map((s) => s.toLowerCase()));
+  for (const v of values) {
+    if (!seen.has(v.toLowerCase())) {
+      existing.push(v);
+      seen.add(v.toLowerCase());
+    }
+  }
+  input.value = existing.join(", ");
+}
+
+function renderFieldSuggestions(container, statusEl, suggestions, targets) {
+  const { keywords, entities, exclude, rationale } = suggestions;
+  if (!keywords.length && !entities.length && !exclude.length) {
+    setStatus(statusEl, "no suggestions found", false);
+    container.replaceChildren();
+    return;
+  }
+  setStatus(statusEl, "review before applying", true);
+  const rows = [];
+  for (
+    const [field, values] of [["keywords", keywords], ["entities", entities], [
+      "exclude",
+      exclude,
+    ]]
+  ) {
+    if (!values.length) continue;
+    const btn = el("button", { type: "button", text: `Add to ${field}` });
+    btn.addEventListener("click", () => {
+      mergeIntoCommaField(targets[field], values);
+      btn.disabled = true;
+      btn.textContent = "added";
+    });
+    rows.push(
+      el(
+        "div",
+        { class: "fact-item" },
+        el(
+          "div",
+          { class: "fact-item-body" },
+          el("p", { class: "fact-meta", text: `${field}: ${values.join(", ")}` }),
+        ),
+        btn,
+      ),
+    );
+  }
+  if (rationale) rows.push(el("p", { class: "hint", text: rationale }));
+  container.replaceChildren(...rows);
+}
+
+async function suggestTopicFields(
+  descriptionSelector,
+  keywordsSelector,
+  entitiesSelector,
+  statusSelector,
+  resultSelector,
+  targets,
+) {
+  const status = $(statusSelector);
+  const description = $(descriptionSelector).value.trim();
+  if (!description) {
+    setStatus(status, "write a description first", false);
+    return;
+  }
+  setStatus(status, "thinking…");
+  try {
+    const suggestions = await post("api/topics/suggest-fields", {
+      description,
+      keywords: $(keywordsSelector).value,
+      entities: $(entitiesSelector).value,
+    });
+    renderFieldSuggestions($(resultSelector), status, suggestions, targets);
+  } catch (err) {
+    setStatus(status, err.message, false);
+  }
+}
+
+function suggestNewTopicFields() {
+  return suggestTopicFields(
+    "#tm-new-description",
+    "#tm-new-keywords",
+    "#tm-new-entities",
+    "#tm-new-suggest-status",
+    "#tm-new-suggest-result",
+    { keywords: "#tm-new-keywords", entities: "#tm-new-entities", exclude: "#tm-new-exclude" },
+  );
+}
+
+function suggestEditTopicFields() {
+  return suggestTopicFields(
+    "#tm-edit-description",
+    "#tm-edit-keywords",
+    "#tm-edit-entities",
+    "#tm-edit-suggest-status",
+    "#tm-edit-suggest-result",
+    { keywords: "#tm-edit-keywords", entities: "#tm-edit-entities", exclude: "#tm-edit-exclude" },
+  );
+}
+
+// ── exclude-suggestions: mines the topic's own most recent briefing for
+//    low-relevance ("weak") narratives that cleared retrieval anyway, and
+//    asks Claude which look like genuine noise. Only available once a topic
+//    has been briefed at least once. Same draft-and-approve pattern as
+//    background-facts auto-draft, reusing its factCard renderer. ──────────
+
+async function suggestExcludesFromNoise() {
+  const id = $("#topic-select").value;
+  if (!id) return;
+  const status = $("#tm-edit-exclude-suggest-status");
+  const list = $("#tm-edit-exclude-suggestions");
+  setStatus(status, "reviewing latest briefing…");
+  try {
+    const { weak_narrative_count, suggestions } = await post(
+      `api/topics/${encodeURIComponent(id)}/exclude-suggestions`,
+      {},
+    );
+    if (!weak_narrative_count) {
+      setStatus(status, "no low-relevance narratives in the latest briefing", false);
+      list.replaceChildren();
+      return;
+    }
+    if (!suggestions.length) {
+      setStatus(
+        status,
+        `${weak_narrative_count} low-relevance narrative(s), none look like genuine noise`,
+        true,
+      );
+      list.replaceChildren();
+      return;
+    }
+    setStatus(
+      status,
+      `${suggestions.length} candidate(s) from ${weak_narrative_count} low-relevance narratives`,
+      true,
+    );
+    list.replaceChildren(
+      ...suggestions.map((s) => {
+        const li = factCard(s.term, s.reason, [
+          {
+            label: "Add to exclude",
+            onClick: () => {
+              mergeIntoCommaField("#tm-edit-exclude", [s.term]);
+              li.remove();
+            },
+          },
+          { label: "Discard", onClick: () => li.remove() },
+        ]);
+        return li;
+      }),
+    );
+  } catch (err) {
+    setStatus(status, err.message, false);
+  }
+}
+
 // ── field-description popovers: tap the "?" chip to see what a field is
 //    for. Click-triggered, not hover-only — a tooltip a touch device can't
 //    reach isn't one tap away. Outside-tap or Escape dismisses; opening one
@@ -1392,6 +1563,9 @@ function initTopicManager() {
   $("#tm-edit-new-tag-create").addEventListener("click", createAndAttachTag);
   $("#tm-edit-fact-add").addEventListener("click", addBackgroundFact);
   $("#tm-edit-fact-draft").addEventListener("click", draftBackgroundFacts);
+  $("#tm-new-suggest-fields").addEventListener("click", suggestNewTopicFields);
+  $("#tm-edit-suggest-fields").addEventListener("click", suggestEditTopicFields);
+  $("#tm-edit-exclude-suggest").addEventListener("click", suggestExcludesFromNoise);
   renderNewFeedList();
   loadTopicForEdit($("#topic-select").value);
 }

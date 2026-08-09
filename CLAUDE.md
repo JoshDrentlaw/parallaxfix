@@ -79,6 +79,27 @@ Headed for a multi-user hosted deployment (droplet, signups), so we overrode the
   narrative's raw velocity/relevance across every stored briefing
   (`BriefingStore.allNarrativeScores`) so cutoffs get set where the real distribution separates, not
   guessed — same principle as Job Radar's own tuning page.
+- **Topic-assist (2026-08)**, added after a live production topic (`data-centers`, one generic
+  keyword + mega-cap entity names + an empty exclude list) surfaced a personal job-search Reddit
+  post as its top-ranked narrative twice in a row. Root cause: a topic's keyword/entity/exclude
+  lists are the fields a user is least equipped to fill in well when they aren't already a domain
+  expert in what they're tracking — unlike the plain-English description, which `buildTopicQuery()`
+  (`src/ingestion/topic.ts`) folds into the same embedding query as keywords/entities, so it already
+  carries real semantic weight for free. Two draft-and-approve LLM helpers close that gap, both
+  following the existing `AnthropicReferenceFacts` (`src/facts/reference.ts`) pattern — web search,
+  structured JSON output, never persist anything, client approves before it's saved:
+  - `src/ingestion/suggest.ts` (`AnthropicTopicSuggestions`, `POST /api/topics/suggest-fields`) —
+    from a plain-English description, proposes candidate keywords/entities/exclude terms before a
+    topic even has an id, using web search to find the domain's real vocabulary rather than guessing
+    generically.
+  - `src/briefing/exclude_suggest.ts` (`AnthropicExcludeSuggestions`,
+    `POST /api/topics/:id/exclude-suggestions`) — mines a topic's own most recent briefing for
+    "weak" narratives (below `ThresholdStore`'s `plausible` cutoff — reusing the tuning page's
+    already-tuned line rather than a new magic number) and proposes exclude terms for the ones that
+    genuinely look like noise. Only works after a topic has been briefed at least once; complements
+    `suggest-fields`, which works sight-unseen.
+  - Both are wired into the topic manager UI (index.html/app.js) as "Suggest ... with Claude"
+    buttons; suggestions render as reviewable cards/rows, never auto-applied to the saved topic.
 
 ## Source rules
 
