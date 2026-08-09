@@ -50,6 +50,26 @@ Headed for a multi-user hosted deployment (droplet, signups), so we overrode the
 - **Semantic match**: embed topic → ANN by cosine → drop `exclude` hits → top-k. Keyword/entity
   hard-filtering is intentionally NOT applied post-retrieval (it reintroduces the brittleness
   semantic search exists to avoid); `exclude` remains a hard negative.
+- **Two embedding tiers (2026-08)**, ported from a sibling project's (Job Radar) pattern after a
+  user-reported false positive (semantic drift toward an unrelated sense of a shared word) traced
+  back to the local embedder's precision ceiling:
+  - **Storage tier** — `bge-small-en-v1.5`, unchanged above, runs on every item that clears the
+    ingest-time keyword prefilter (`matchesAnyTopic`). Stays free/local because it has to run at
+    firehose-adjacent volume.
+  - **Rerank tier** (optional) — Voyage AI (`src/corpus/embed_voyage.ts`, `RerankEmbeddingPort`,
+    `VOYAGE_API_KEY`/`VOYAGE_MODEL`, default `voyage-3.5`). Never touches the full corpus: only
+    `retrieveForAnalysis`'s already-narrow candidate pool (widened via `RERANK_POOL_MULTIPLIER`,
+    capped at `MAX_RERANK_POOL`) gets sent to it, and only the fraction of that pool lacking a
+    cached, model-matching vector. The result is written back onto the item row
+    (`analyzed_embedding`/`analyzed_model`/`analyzed_at`) and reused forever after — a recurring
+    story or a popular item is never re-embedded, so the "repository of analyzed information" only
+    grows and gets cheaper at the margin. Absent `VOYAGE_API_KEY`, `briefTopic` degrades honestly to
+    local-embedding-only relevance (same pattern as `ANTHROPIC_API_KEY`).
+  - **Model provenance**: every stored vector (both tiers) records the model that produced it
+    (`items.model` for storage, `items.analyzed_model` for rerank). A future model swap is an
+    explicit re-embed — the code detects a mismatch and re-embeds automatically, never silently
+    mixes vector spaces. `analyzed_embedding` is a dimension-less `vector` column for exactly this
+    reason (mirrors Job Radar's schema comment): the rerank model's dimension is config, not schema.
 
 ## Source rules
 

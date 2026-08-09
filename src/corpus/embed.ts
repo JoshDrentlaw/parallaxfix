@@ -29,13 +29,13 @@ export interface LocalEmbedderOptions {
 
 export class LocalEmbedder implements EmbeddingPort {
   readonly dimensions: number;
-  readonly #model: string;
+  readonly model: string;
   readonly #queryInstruction: string;
   readonly #cacheDir: string;
   #extractor: FeatureExtractor | null = null;
 
   constructor(opts: LocalEmbedderOptions = {}) {
-    this.#model = opts.model ?? Deno.env.get("PARALLAX_FIX_EMBED_MODEL") ??
+    this.model = opts.model ?? Deno.env.get("PARALLAX_FIX_EMBED_MODEL") ??
       "BAAI/bge-small-en-v1.5";
     this.dimensions = opts.dimensions ?? 384;
     this.#queryInstruction = opts.queryInstruction ??
@@ -49,7 +49,7 @@ export class LocalEmbedder implements EmbeddingPort {
       env.cacheDir = this.#cacheDir;
       this.#extractor = await pipeline(
         "feature-extraction",
-        this.#model,
+        this.model,
       ) as unknown as FeatureExtractor;
     }
     return this.#extractor;

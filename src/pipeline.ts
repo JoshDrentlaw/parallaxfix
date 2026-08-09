@@ -13,6 +13,7 @@ import type { Briefing, Item, LLMPort, SourcePort, TopicDefinition } from "./por
 import type { CoverageReport } from "./ports.ts";
 import { PgCorpus } from "./corpus/store.ts";
 import { LocalEmbedder } from "./corpus/embed.ts";
+import { VoyageEmbedder } from "./corpus/embed_voyage.ts";
 import { FactStore } from "./facts/store.ts";
 import { BriefingStore } from "./briefing/store.ts";
 import { GdeltAdapter, toGdeltDatetime } from "./ingestion/gdelt.ts";
@@ -31,8 +32,21 @@ export interface PipelineContext {
   onProgress?: (message: string) => void;
 }
 
-function corpusFor(ctx: PipelineContext): PgCorpus {
-  return new PgCorpus({ databaseUrl: ctx.databaseUrl, embedder: new LocalEmbedder() });
+/**
+ * `rerank: true` wires in the Voyage rerank tier (src/corpus/embed_voyage.ts)
+ * when VOYAGE_API_KEY is set — only briefTopic's retrieval needs it;
+ * gatherSources only ever appends, and the rerank tier is never consulted
+ * there (see PgCorpus.append).
+ */
+function corpusFor(ctx: PipelineContext, opts: { rerank?: boolean } = {}): PgCorpus {
+  const rerankEmbedder = opts.rerank && Deno.env.get("VOYAGE_API_KEY")
+    ? new VoyageEmbedder()
+    : undefined;
+  return new PgCorpus({
+    databaseUrl: ctx.databaseUrl,
+    embedder: new LocalEmbedder(),
+    rerankEmbedder,
+  });
 }
 
 export interface GatherOptions {
@@ -144,7 +158,10 @@ export async function briefTopic(
   const k = opts.k ?? 200;
   const now = opts.now ?? new Date();
 
-  const corpus = corpusFor(ctx);
+  if (!Deno.env.get("VOYAGE_API_KEY")) {
+    progress("VOYAGE_API_KEY not set — relevance ranked by the local embedder only");
+  }
+  const corpus = corpusFor(ctx, { rerank: true });
   let ranked: import("./ports.ts").RankedItem[];
   try {
     ranked = await corpus.retrieveForAnalysis(topic, k, { minSimilarity: opts.minSimilarity });
