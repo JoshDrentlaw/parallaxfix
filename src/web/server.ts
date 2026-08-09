@@ -66,6 +66,16 @@ export interface WebDeps {
 const STATIC_DIR = new URL("./static/", import.meta.url);
 const FAVICON = new URL("../../favicon.svg", import.meta.url);
 
+/**
+ * report-uri turns a silent block into a logged one: without it, a mistake
+ * like an inline style="..." (which the CSP drops unconditionally — no
+ * unsafe-inline, no nonce) only shows up if someone happens to have devtools
+ * open. Shipped after that happened twice (the tuning histogram, the
+ * info-chip popover) and went unnoticed both times. `report-uri` is the
+ * older of the two reporting mechanisms (the newer `report-to` needs a
+ * paired `Reporting-Endpoints` response header) but is simpler and still
+ * honored by every current browser; revisit only if that stops being true.
+ */
 const CSP = [
   "default-src 'none'",
   "script-src 'self'",
@@ -74,6 +84,7 @@ const CSP = [
   "connect-src 'self'",
   "base-uri 'none'",
   "form-action 'none'",
+  "report-uri /api/csp-report",
 ].join("; ");
 
 function json(body: unknown, status = 200): Response {
@@ -145,6 +156,33 @@ async function readJsonBody<T>(req: Request): Promise<T | Response> {
   } catch {
     return errorJson(400, "request body must be JSON");
   }
+}
+
+/**
+ * POST /api/csp-report — the browser's own report-uri delivery (see the CSP
+ * constant above). Fire-and-forget from the browser's side, so this never
+ * fails loudly: a malformed body is logged as-is and still gets a 204,
+ * never a 500. Logs to stdout (docker logs), not the database — a CSP
+ * violation is a maintenance signal, not user data worth persisting.
+ */
+async function reportCspViolation(req: Request): Promise<Response> {
+  try {
+    const parsed = await req.json();
+    const report = (parsed as { "csp-report"?: Record<string, unknown> })["csp-report"];
+    if (report) {
+      console.warn(
+        `[csp-report] ${report["violated-directive"]} blocked ${report["blocked-uri"]} ` +
+          `at ${report["source-file"]}:${report["line-number"]} (page ${report["document-uri"]})`,
+      );
+    } else {
+      console.warn("[csp-report] unrecognized report shape:", JSON.stringify(parsed).slice(0, 500));
+    }
+  } catch (err) {
+    console.warn(
+      `[csp-report] could not parse report body: ${err instanceof Error ? err.message : err}`,
+    );
+  }
+  return new Response(null, { status: 204 });
 }
 
 /** POST /api/topics — create a new saved topic. 409s if the id is already taken. */
@@ -858,6 +896,9 @@ export function createHandler(deps: WebDeps = {}): (req: Request) => Promise<Res
       }
       if (req.method === "POST" && pathname === "/api/feeds/validate") {
         return await validateFeed(req);
+      }
+      if (req.method === "POST" && pathname === "/api/csp-report") {
+        return await reportCspViolation(req);
       }
 
       if (req.method === "POST" && (pathname === "/api/gather" || pathname === "/api/brief")) {
