@@ -14,6 +14,11 @@ import type { BackgroundFact, Briefing, CoverageReport, Tag, TopicDefinition } f
 import { FactStore } from "../facts/store.ts";
 import { BriefingStore } from "../briefing/store.ts";
 import {
+  type BucketThresholds,
+  ThresholdStore,
+  validateThresholds,
+} from "../briefing/thresholds.ts";
+import {
   adHocTopic,
   deleteTopic,
   listTopics,
@@ -497,6 +502,51 @@ async function listLatestBriefings(databaseUrl: string): Promise<Response> {
   }
 }
 
+// ── Tuning (2026-08) — the hot/active/quiet + strong/plausible/weak bucket
+//    cutoffs, ported from Job Radar's app.settings + histogram pattern.
+//    Thresholds live here instead of the hardcoded constants
+//    velocityBucket()/relevanceBucket() shipped with, and the GET response
+//    carries the raw scores across every stored briefing so the client can
+//    show where the real distribution separates. ─────────────────────────
+
+/** GET /api/tuning — current thresholds + every stored narrative's raw velocity/relevance. */
+async function getTuning(databaseUrl: string): Promise<Response> {
+  const thresholds = new ThresholdStore(databaseUrl);
+  const briefings = new BriefingStore(databaseUrl);
+  try {
+    await Promise.all([thresholds.init(), briefings.init()]);
+    const [current, scores] = await Promise.all([
+      thresholds.get(),
+      briefings.allNarrativeScores(),
+    ]);
+    return json({ thresholds: current, scores });
+  } finally {
+    await Promise.all([thresholds.close(), briefings.close()]);
+  }
+}
+
+/** PUT /api/tuning — set the bucket thresholds. Validated; never partially applied. */
+async function putTuning(databaseUrl: string, req: Request): Promise<Response> {
+  const body = await readJsonBody<Partial<BucketThresholds>>(req);
+  if (body instanceof Response) return body;
+  const t: BucketThresholds = {
+    hot: Number(body.hot),
+    active: Number(body.active),
+    strong: Number(body.strong),
+    plausible: Number(body.plausible),
+  };
+  const invalid = validateThresholds(t);
+  if (invalid) return errorJson(400, invalid);
+
+  const store = new ThresholdStore(databaseUrl);
+  try {
+    await store.init();
+    return json(await store.set(t));
+  } finally {
+    await store.close();
+  }
+}
+
 /**
  * POST /api/topics/:id/facts/draft — auto-draft candidate background facts
  * via Claude + web search (Track B, auto-draft). Draft-and-approve only:
@@ -595,6 +645,11 @@ export function createHandler(deps: WebDeps = {}): (req: Request) => Promise<Res
             if (db instanceof Response) return db;
             return await listLatestBriefings(db);
           }
+          case "/api/tuning": {
+            const db = requireDb();
+            if (db instanceof Response) return db;
+            return await getTuning(db);
+          }
         }
       }
 
@@ -602,6 +657,12 @@ export function createHandler(deps: WebDeps = {}): (req: Request) => Promise<Res
         const db = requireDb();
         if (db instanceof Response) return db;
         return await createTagHandler(db, req);
+      }
+
+      if (req.method === "PUT" && pathname === "/api/tuning") {
+        const db = requireDb();
+        if (db instanceof Response) return db;
+        return await putTuning(db, req);
       }
 
       // Topic CRUD + per-topic feed management. `id` is sanitized before it

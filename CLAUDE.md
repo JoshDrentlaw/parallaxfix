@@ -70,6 +70,15 @@ Headed for a multi-user hosted deployment (droplet, signups), so we overrode the
     explicit re-embed — the code detects a mismatch and re-embeds automatically, never silently
     mixes vector spaces. `analyzed_embedding` is a dimension-less `vector` column for exactly this
     reason (mirrors Job Radar's schema comment): the rerank model's dimension is config, not schema.
+- **Tunable bucket thresholds (2026-08)**, the second Job Radar pattern brought in alongside the
+  rerank tier: hot/active/quiet and strong/plausible/weak used to be hardcoded constants in `app.js`
+  with a code comment reading "an initial heuristic ... revisit once there's real usage data."
+  `src/briefing/thresholds.ts` (`ThresholdStore`, `GET`/`PUT /api/tuning`) is that revisiting
+  mechanism — a single settings row, defaulting to the old hardcoded values, read live by the client
+  instead of baked into the bundle. The Tuning card (index.html) shows a histogram of every
+  narrative's raw velocity/relevance across every stored briefing
+  (`BriefingStore.allNarrativeScores`) so cutoffs get set where the real distribution separates, not
+  guessed — same principle as Job Radar's own tuning page.
 
 ## Source rules
 

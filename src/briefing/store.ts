@@ -133,6 +133,27 @@ export class BriefingStore {
     return rows.map((r) => rowToSummary(r as unknown as Row));
   }
 
+  /**
+   * Every narrative's raw velocity/relevance across every stored briefing,
+   * ever — the tuning page's histogram source (see src/briefing/thresholds.ts):
+   * thresholds should be set where this distribution actually separates, not
+   * guessed. Unnests the stored JSON rather than requiring a separate scored-
+   * pairs table, since `narratives[].velocity/.relevance` already carry
+   * exactly this data.
+   */
+  async allNarrativeScores(): Promise<{ velocity: number; relevance: number }[]> {
+    const rows = await this.#sql`
+      SELECT
+        (elem->>'velocity')::double precision AS velocity,
+        (elem->>'relevance')::double precision AS relevance
+      FROM briefings, jsonb_array_elements(data->'narratives') AS elem
+    `;
+    return rows.map((r) => {
+      const row = r as unknown as Row;
+      return { velocity: Number(row.velocity), relevance: Number(row.relevance) };
+    });
+  }
+
   /** Test helper: wipe the briefings table. */
   async clear(): Promise<void> {
     await this.#sql`TRUNCATE briefings`;

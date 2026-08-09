@@ -219,21 +219,26 @@ function renderCoverage(c) {
 }
 
 // ── velocity/relevance buckets ──────────────────────────────────────────────
-// Thresholds are an initial heuristic, not tuned against a real velocity/
-// similarity distribution (same caveat DEFAULT_MIN_SIMILARITY in
-// src/corpus/store.ts carries) — revisit once there's real usage data.
-// Velocity is a magnitude (items/hour over a fixed recent window), not a
-// measured trend, so the labels describe how much is happening, not whether
-// it's accelerating or decelerating.
+// Thresholds used to be hardcoded here — "an initial heuristic, not tuned
+// against a real distribution, revisit once there's real usage data." That
+// revisiting mechanism now exists (src/briefing/thresholds.ts + the Tuning
+// card below): thresholds live server-side and are fetched once at boot
+// (loadTuningThresholds), with these values as the fallback before that
+// fetch resolves (and if it never does — e.g. no DATABASE_URL) so buckets
+// never silently break. Velocity is a magnitude (items/hour over a fixed
+// recent window), not a measured trend, so the labels describe how much is
+// happening, not whether it's accelerating or decelerating.
+let bucketThresholds = { hot: 3, active: 0.5, strong: 0.65, plausible: 0.5 };
+
 function velocityBucket(v) {
-  if (v >= 3) return { label: "hot", cls: "hot" };
-  if (v >= 0.5) return { label: "active", cls: "active" };
+  if (v >= bucketThresholds.hot) return { label: "hot", cls: "hot" };
+  if (v >= bucketThresholds.active) return { label: "active", cls: "active" };
   return { label: "quiet", cls: "quiet" };
 }
 
 function relevanceBucket(r) {
-  if (r >= 0.65) return { label: "strong match", cls: "strong" };
-  if (r >= 0.5) return { label: "plausible match", cls: "plausible" };
+  if (r >= bucketThresholds.strong) return { label: "strong match", cls: "strong" };
+  if (r >= bucketThresholds.plausible) return { label: "plausible match", cls: "plausible" };
   return { label: "weak match", cls: "weak" };
 }
 
@@ -1256,6 +1261,119 @@ function initInfoChips() {
   });
 }
 
+// ── tuning (2026-08) — bucket thresholds, live from the server instead of
+//    hardcoded, with a histogram of every stored narrative's raw velocity/
+//    relevance so they get set where the real distribution separates
+//    (src/briefing/thresholds.ts). ─────────────────────────────────────────
+
+/** Evenly-binned counts over [domainMin, domainMax] — values outside are clamped into the edge bins. */
+function histogramBins(values, binCount, domainMin, domainMax) {
+  const span = domainMax - domainMin || 1;
+  const width = span / binCount;
+  const counts = new Array(binCount).fill(0);
+  for (const v of values) {
+    const clamped = Math.min(Math.max(v, domainMin), domainMax - 1e-9);
+    counts[Math.floor((clamped - domainMin) / width)] += 1;
+  }
+  return counts.map((count, i) => ({
+    from: domainMin + i * width,
+    to: domainMin + (i + 1) * width,
+    count,
+  }));
+}
+
+/** Renders a row of bars into `container`; `classify(bin)` returns the pill class each bar borrows its color from. */
+function renderHistogramBars(container, bins, classify) {
+  const peak = Math.max(1, ...bins.map((b) => b.count));
+  container.replaceChildren(
+    ...bins.map((bin) =>
+      el("div", {
+        class: `hist-bar ${classify(bin)}`,
+        style: `height: ${Math.round((bin.count / peak) * 100)}%`,
+        title: `${bin.from.toFixed(2)}–${bin.to.toFixed(2)}: ${bin.count}`,
+      })
+    ),
+  );
+}
+
+/** Draft thresholds straight from the input fields — not yet saved, but what the histogram colors against live. */
+function draftThresholds() {
+  return {
+    hot: Number($("#tuning-hot").value),
+    active: Number($("#tuning-active").value),
+    strong: Number($("#tuning-strong").value),
+    plausible: Number($("#tuning-plausible").value),
+  };
+}
+
+/** Scores fetched once per page load; re-binned live as the draft threshold inputs change. */
+let tuningScores = [];
+
+function renderTuningHistograms() {
+  const t = draftThresholds();
+  const velocities = tuningScores.map((s) => s.velocity);
+  const relevances = tuningScores.map((s) => s.relevance);
+
+  const vMax = Math.max(1, ...velocities, t.hot * 1.2);
+  const velocityBins = histogramBins(velocities, 20, 0, vMax);
+  renderHistogramBars(
+    $("#tuning-hist-velocity"),
+    velocityBins,
+    (bin) => (bin.from >= t.hot ? "hot" : bin.from >= t.active ? "active" : "quiet"),
+  );
+
+  const relevanceBins = histogramBins(relevances, 20, 0, 1);
+  renderHistogramBars(
+    $("#tuning-hist-relevance"),
+    relevanceBins,
+    (bin) => (bin.from >= t.strong ? "strong" : bin.from >= t.plausible ? "plausible" : "weak"),
+  );
+
+  $("#tuning-hist-count").textContent = tuningScores.length
+    ? `${tuningScores.length} narrative(s) across every stored briefing`
+    : "no briefings stored yet — run one to populate this";
+}
+
+function fillTuningInputs(t) {
+  $("#tuning-hot").value = t.hot;
+  $("#tuning-active").value = t.active;
+  $("#tuning-strong").value = t.strong;
+  $("#tuning-plausible").value = t.plausible;
+}
+
+async function loadTuning() {
+  try {
+    const { thresholds, scores } = await get("api/tuning");
+    bucketThresholds = thresholds;
+    tuningScores = scores;
+    fillTuningInputs(thresholds);
+    renderTuningHistograms();
+  } catch {
+    // No DATABASE_URL — bucketThresholds keeps its fallback value (declared
+    // above) and the card just shows no data.
+    $("#tuning-hist-count").textContent = "unavailable — set DATABASE_URL";
+  }
+}
+
+async function saveTuning() {
+  const status = $("#tuning-status");
+  try {
+    const saved = await put("api/tuning", draftThresholds());
+    bucketThresholds = saved;
+    fillTuningInputs(saved);
+    setStatus(status, "saved", true);
+  } catch (err) {
+    setStatus(status, err.message, false);
+  }
+}
+
+function initTuning() {
+  for (const id of ["#tuning-hot", "#tuning-active", "#tuning-strong", "#tuning-plausible"]) {
+    $(id).addEventListener("input", renderTuningHistograms);
+  }
+  $("#tuning-save").addEventListener("click", saveTuning);
+}
+
 function initTopicManager() {
   for (const btn of document.querySelectorAll(".tm-tab")) {
     btn.addEventListener("click", () => switchTab(btn.dataset.tab));
@@ -1288,6 +1406,8 @@ setInterval(loadStatus, 15_000);
 loadTopics();
 loadHomeView();
 initTopicManager();
+initTuning();
+loadTuning();
 initInfoChips();
 $("#update-btn").addEventListener("click", runUpdate);
 $("#gather-only-btn").addEventListener("click", runGatherOnly);
