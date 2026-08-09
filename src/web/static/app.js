@@ -176,6 +176,16 @@ function renderCoverage(c) {
       ),
     );
   }
+  if (c.excluded && c.excluded.count > 0) {
+    row.append(
+      el(
+        "span",
+        { class: "cov-pill warn", title: "dropped by this topic's exclude list before scoring" },
+        el("span", { class: "dot" }),
+        `${c.excluded.count} excluded`,
+      ),
+    );
+  }
   row.append(el("span", { class: "coverage-toggle", text: "coverage details" }));
   details.append(el("summary", {}, row));
 
@@ -213,6 +223,30 @@ function renderCoverage(c) {
       class: "signal-note",
       text: "references = attention, not content; links can be gamed — treat as a lead.",
     }));
+  }
+  // A topic's own exclude list is a self-inflicted coverage gap (P1): show
+  // what it actually dropped, not just a count, so over-excluding is
+  // something you can catch by looking, not something you have to trust.
+  if (c.excluded && c.excluded.count > 0) {
+    const block = el("div", { class: "excluded-block" });
+    block.append(el("p", {
+      class: "heading",
+      text: `Excluded by your topic's exclude list: ${c.excluded.count} item(s)` +
+        (c.excluded.sample.length < c.excluded.count
+          ? ` (showing ${c.excluded.sample.length})`
+          : ""),
+    }));
+    for (const s of c.excluded.sample) {
+      block.append(
+        el(
+          "div",
+          { class: "excluded-sample" },
+          el("span", { class: "term", text: `"${s.matched_term}"` }),
+          el("span", { class: "text", text: `[${s.source}] ${s.text}` }),
+        ),
+      );
+    }
+    detail.append(block);
   }
   details.append(detail);
   return details;
@@ -294,7 +328,72 @@ function provenanceLine(e) {
 // the first narrative opens by default — a run with a dozen-plus narratives
 // still opens as a short, scannable list of headlines instead of everything
 // unrolled at once.
-function renderNarrative(n, i, provenance) {
+// ── quick-exclude: a one-click escape hatch from inside a narrative you
+//    immediately recognize as off-topic, without leaving the briefing to open
+//    the topic manager. Saves directly (PUT), unlike the AI-suggested
+//    excludes (suggestExcludesFromNoise) — this is the user's own explicit
+//    judgment call on a specific narrative in front of them, not a guess
+//    needing review. The term is editable before confirming since a
+//    narrative's LLM-generated label is often too long or too specific to be
+//    a good substring match against raw post text (isExcluded in
+//    src/ingestion/topic.ts matches literal substrings). ───────────────────
+
+function quickExcludeControl(narrative, topicId) {
+  const wrap = el("div", { class: "quick-exclude" });
+  const btn = el("button", {
+    type: "button",
+    class: "quick-exclude-btn",
+    text: "Not relevant? Quick-exclude",
+  });
+  const status = el("span", { class: "tm-status" });
+  wrap.append(btn, status);
+
+  btn.addEventListener("click", () => {
+    if (wrap.querySelector(".quick-exclude-form")) return;
+    btn.hidden = true;
+    const form = el("div", { class: "quick-exclude-form" });
+    const input = el("input", { type: "text", value: narrative.label || "" });
+    const confirmBtn = el("button", { type: "button", class: "primary", text: "Add to exclude" });
+    const cancelBtn = el("button", { type: "button", text: "Cancel" });
+    form.append(input, confirmBtn, cancelBtn);
+    wrap.append(form);
+    input.focus();
+    input.select();
+
+    const closeForm = () => {
+      form.remove();
+      btn.hidden = false;
+    };
+    cancelBtn.addEventListener("click", closeForm);
+
+    confirmBtn.addEventListener("click", async () => {
+      const term = input.value.trim();
+      if (!term) return;
+      confirmBtn.disabled = true;
+      try {
+        const topic = await get(`api/topics/${encodeURIComponent(topicId)}`);
+        const existing = topic.exclude || [];
+        if (!existing.some((e) => e.toLowerCase() === term.toLowerCase())) {
+          await put(`api/topics/${encodeURIComponent(topicId)}`, {
+            exclude: [...existing, term].join(", "),
+          });
+        }
+        closeForm();
+        setStatus(status, `excluded "${term}" — rerun the briefing to apply it`, true);
+        // Keep the topic manager's exclude field in sync if it's open on this topic right now.
+        if ($("#topic-select").value === topicId) {
+          $("#tm-edit-exclude").value = [...existing, term].join(", ");
+        }
+      } catch (err) {
+        confirmBtn.disabled = false;
+        setStatus(status, err.message, false);
+      }
+    });
+  });
+  return wrap;
+}
+
+function renderNarrative(n, i, provenance, savedTopicId) {
   const details = el("details", { class: "narrative", id: `narrative-${n.cluster_id}` });
   if (i === 0) details.open = true;
 
@@ -345,6 +444,8 @@ function renderNarrative(n, i, provenance) {
   const body = el("div", { class: "narrative-body" });
   const inner = el("div", { class: "narrative-body-inner" });
 
+  if (savedTopicId) inner.append(quickExcludeControl(n, savedTopicId));
+
   if (n.representative_item_ids.length) {
     inner.append(el("div", { class: "evidence-label", text: "Representative posts" }));
     for (const id of n.representative_item_ids) {
@@ -394,7 +495,7 @@ function renderNarrative(n, i, provenance) {
   return details;
 }
 
-function renderBriefing(b) {
+function renderBriefing(b, savedTopicId) {
   const out = [];
 
   // Case header: headline, generated-at meta, at-a-glance stat tiles, and
@@ -487,7 +588,7 @@ function renderBriefing(b) {
       }),
     );
   }
-  b.narratives.forEach((n, i) => out.push(renderNarrative(n, i, b.provenance)));
+  b.narratives.forEach((n, i) => out.push(renderNarrative(n, i, b.provenance, savedTopicId)));
   return out;
 }
 
@@ -559,7 +660,7 @@ async function runUpdate() {
     await post("api/gather", body);
     setBusy("clustering, labeling, extracting claims — the Haiku batch step can take a while…");
     const briefing = await post("api/brief", body);
-    $("#results").replaceChildren(...renderBriefing(briefing));
+    $("#results").replaceChildren(...renderBriefing(briefing, $("#topic-select").value || null));
     focusResults();
     await loadBriefingsLibrary($("#topic-select").value);
     await loadHomeView();
@@ -646,7 +747,9 @@ async function viewStoredBriefing(id) {
   setBusy("loading saved briefing…");
   try {
     const briefing = await get(`api/briefings/${encodeURIComponent(id)}`);
-    $("#results").replaceChildren(...renderBriefing(briefing));
+    // The briefings library is scoped to saved topics only (see the section
+    // comment above), so briefing.topic_id is always a real saved topic id.
+    $("#results").replaceChildren(...renderBriefing(briefing, briefing.topic_id));
     focusResults();
   } catch (err) {
     showError(err);

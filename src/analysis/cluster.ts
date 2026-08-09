@@ -60,6 +60,44 @@ class UnionFind {
   }
 }
 
+/**
+ * Two items collapse to the same "voice" for velocity purposes if the same
+ * author posted both, or if they're near-verbatim reposts/translations of
+ * each other — far stricter than the clustering threshold above, which is
+ * about "same narrative," not "same post." An unauthored item never
+ * collapses on authorship alone (an unknown/missing author isn't evidence
+ * two posts are the same voice).
+ *
+ * Heuristic, not tuned against bge-small's actual similarity distribution
+ * (same caveat as DEFAULT_MIN_SIMILARITY in src/corpus/store.ts) — exists
+ * because raw items/hour let a rapid-repost burst (one bot account posting
+ * sequential updates, or a wire item auto-translated and reposted by several
+ * accounts seconds apart) outrank broad, multi-source coverage on velocity
+ * alone — exactly the "volume, not velocity" failure P5 exists to avoid.
+ */
+const DUPLICATE_VOICE_SIMILARITY = 0.93;
+
+/** One (earliest) timestamp per distinct voice in the cluster — see DUPLICATE_VOICE_SIMILARITY. */
+function distinctVoiceTimestamps(members: (Item & { embedding: number[] })[]): Date[] {
+  const uf = new UnionFind(members.length);
+  for (let i = 0; i < members.length; i++) {
+    for (let j = i + 1; j < members.length; j++) {
+      const sameAuthor = members[i].author != null && members[i].author === members[j].author;
+      const duplicateText = !sameAuthor &&
+        cosine(members[i].embedding, members[j].embedding) >= DUPLICATE_VOICE_SIMILARITY;
+      if (sameAuthor || duplicateText) uf.union(i, j);
+    }
+  }
+  const earliest = new Map<number, Date>();
+  for (let i = 0; i < members.length; i++) {
+    const root = uf.find(i);
+    const t = members[i].created_at;
+    const cur = earliest.get(root);
+    if (!cur || t < cur) earliest.set(root, t);
+  }
+  return [...earliest.values()];
+}
+
 export interface ClusterOptions {
   /** Cosine similarity at/above which two items join the same narrative. */
   threshold?: number;
@@ -112,7 +150,7 @@ export function clusterItems(items: Item[], opts: ClusterOptions = {}): Cluster[
       centroid: centroidOf(members.map((m) => m.embedding)),
       label: "",
       first_seen: new Date(Math.min(...timestamps.map((t) => t.getTime()))),
-      velocity: computeVelocity(timestamps, now),
+      velocity: computeVelocity(distinctVoiceTimestamps(members), now),
       size: members.length,
       relevance: sims.reduce((a, b) => a + b, 0) / sims.length,
     });
