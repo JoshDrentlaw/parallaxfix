@@ -122,6 +122,23 @@ Deno.test("web: /api/brief round-trips a briefing through the injected pipeline"
   assert(b.coverage.sources_unavailable.some((u: { source: string }) => u.source === "tiktok"));
 });
 
+Deno.test("web: /api/brief only asks the pipeline to save to the briefings library for a saved topic", async () => {
+  const saveFlags: (boolean | undefined)[] = [];
+  const handler = createHandler({
+    topicsDir: await Deno.makeTempDir(),
+    brief: (_topic, _k, _minSimilarity, saveToLibrary) => {
+      saveFlags.push(saveToLibrary);
+      return Promise.resolve(sampleBriefing());
+    },
+  });
+  // Ad hoc (keywords, no saved topic file) — must not accumulate in the library.
+  await handler(post("/api/brief", { keywords: "recall" }));
+  // A saved topic — should be persisted to the library.
+  await handler(post("/api/topics", { id: "riverside-recall-2", keywords: "recall" }));
+  await handler(post("/api/brief", { topicId: "riverside-recall-2" }));
+  assertEquals(saveFlags, [false, true]);
+});
+
 Deno.test("web: bad input → 400s; unknown routes → 404", async () => {
   const handler = createHandler({ databaseUrl: () => "postgres://unused" });
   assertEquals((await handler(post("/api/brief", {}))).status, 400);

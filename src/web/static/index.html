@@ -483,6 +483,15 @@
               <input id="until" type="date">
             </label>
           </div>
+          <div class="row">
+            <button id="gather-only-btn" type="button">Gather only (no LLM)</button>
+            <span id="gather-only-status" class="tm-status"></span>
+          </div>
+          <p class="hint">
+            Refreshes the corpus from Reddit/GDELT/RSS without running the paid Haiku/Sonnet
+            labeling step — poll for new items as often as you like, and only pay for "Update
+            briefing" when you actually want a new briefing.
+          </p>
         </details>
         <div class="row actions">
           <button id="update-btn" type="button" class="primary">Update briefing</button>

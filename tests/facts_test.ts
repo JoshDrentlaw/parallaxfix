@@ -44,6 +44,34 @@ Deno.test({
 });
 
 Deno.test({
+  name: "FactStore: getFact/getTag are indexed single-row lookups, not a full-table scan",
+  ignore: !DATABASE_URL,
+  async fn() {
+    const { FactStore } = await import("../src/facts/store.ts");
+    const facts = new FactStore(DATABASE_URL!);
+    try {
+      await facts.init();
+      await facts.clear();
+
+      const fact = await facts.createFact({
+        text: "Some durable fact.",
+        source_name: "Source",
+        source_url: "https://example.com/source",
+        as_of: new Date("2026-01-01T00:00:00Z"),
+      });
+      const tag = await facts.createTag("some-tag", "Some Tag");
+
+      assertEquals((await facts.getFact(fact.id))?.id, fact.id);
+      assertEquals(await facts.getFact("no-such-id"), null);
+      assertEquals((await facts.getTag(tag.id))?.id, tag.id);
+      assertEquals(await facts.getTag("no-such-id"), null);
+    } finally {
+      await facts.close();
+    }
+  },
+});
+
+Deno.test({
   name: "FactStore: createTag is idempotent by slug",
   ignore: !DATABASE_URL,
   async fn() {

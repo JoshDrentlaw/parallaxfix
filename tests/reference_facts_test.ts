@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { parseDraftFacts } from "../src/facts/reference.ts";
+import { lastText, parseDraftFacts } from "../src/facts/reference.ts";
 
 Deno.test("parseDraftFacts: well-formed JSON round-trips", () => {
   const text = JSON.stringify({
@@ -44,6 +44,25 @@ Deno.test("parseDraftFacts: drops facts with a non-http(s) or malformed source_u
   const out = parseDraftFacts(text);
   assertEquals(out.length, 1);
   assertEquals(out[0].text, "keeps this one");
+});
+
+Deno.test("lastText: picks the final text block, not the first — web_search interleaves preamble/tool blocks before the schema-conformant answer", () => {
+  // deno-lint-ignore no-explicit-any
+  const content: any = [
+    { type: "text", text: "Let me search for background on this topic..." },
+    { type: "server_tool_use", id: "srvtoolu_1", name: "web_search", input: {} },
+    { type: "web_search_tool_result", tool_use_id: "srvtoolu_1", content: [] },
+    { type: "text", text: '{"facts":[]}' },
+  ];
+  assertEquals(lastText(content), '{"facts":[]}');
+});
+
+Deno.test("lastText: no text block at all is an empty string, not a throw", () => {
+  // deno-lint-ignore no-explicit-any
+  const content: any = [
+    { type: "server_tool_use", id: "srvtoolu_1", name: "web_search", input: {} },
+  ];
+  assertEquals(lastText(content), "");
 });
 
 Deno.test("parseDraftFacts: drops facts missing a required field", () => {

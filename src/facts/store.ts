@@ -109,6 +109,12 @@ export class FactStore {
     return rowToTag(existing[0] as unknown as Row);
   }
 
+  /** A single tag by id (indexed lookup) — for "attach an existing tag" flows that only need one row. */
+  async getTag(id: string): Promise<Tag | null> {
+    const rows = await this.#sql`SELECT * FROM tags WHERE id = ${id}`;
+    return rows.length > 0 ? rowToTag(rows[0] as unknown as Row) : null;
+  }
+
   // ── facts — durable, standalone; topic-scoping is via the join tables below ──
 
   async createFact(
@@ -127,6 +133,12 @@ export class FactStore {
   async listAllFacts(): Promise<BackgroundFact[]> {
     const rows = await this.#sql`SELECT * FROM background_facts ORDER BY as_of DESC`;
     return rows.map((r) => rowToFact(r as unknown as Row));
+  }
+
+  /** A single fact by id (indexed lookup) — for "attach an existing fact" flows that only need one row. */
+  async getFact(id: string): Promise<BackgroundFact | null> {
+    const rows = await this.#sql`SELECT * FROM background_facts WHERE id = ${id}`;
+    return rows.length > 0 ? rowToFact(rows[0] as unknown as Row) : null;
   }
 
   /** Deletes the fact record itself (cascades to its attachments and tags). */

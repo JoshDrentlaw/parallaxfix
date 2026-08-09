@@ -725,6 +725,9 @@ code {
 .home-view-link.hot {
   border-left-color: var(--accent);
 }
+.home-view-link.active {
+  border-left-color: var(--warn);
+}
 .home-view-link.quiet {
   border-left-color: var(--border);
 }
