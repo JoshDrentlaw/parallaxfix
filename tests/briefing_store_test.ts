@@ -1,7 +1,8 @@
 import { assert, assertEquals } from "@std/assert";
 import { sampleBriefing } from "./fixtures/briefing.ts";
+import { testDatabaseUrl } from "./db_test_guard.ts";
 
-const DATABASE_URL = Deno.env.get("DATABASE_URL");
+const DATABASE_URL = testDatabaseUrl();
 
 Deno.test({
   name: "BriefingStore: save + listForTopic (most recent first) + get by id",

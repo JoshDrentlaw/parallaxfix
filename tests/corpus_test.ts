@@ -2,6 +2,7 @@ import { assert, assertEquals } from "@std/assert";
 import postgres from "postgres";
 import type { EmbeddingPort, Item, RerankEmbeddingPort } from "../src/ports.ts";
 import { adHocTopic, buildTopicQuery, isExcluded, slugifyTopicId } from "../src/ingestion/topic.ts";
+import { testDatabaseUrl } from "./db_test_guard.ts";
 
 // ── pure helpers (no DB) ──────────────────────────────────────────────────────
 
@@ -125,7 +126,7 @@ function cosineSimilarity(a: number[], b: number[]): number {
   return dot / (Math.sqrt(na) * Math.sqrt(nb));
 }
 
-const DATABASE_URL = Deno.env.get("DATABASE_URL");
+const DATABASE_URL = testDatabaseUrl();
 
 Deno.test({
   name: "PgCorpus: append + dedupe + semantic retrieve + exclude filter",

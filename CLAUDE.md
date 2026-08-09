@@ -161,8 +161,16 @@ retargeted:
 
 - **Bobbie** (test writer) — her "what you write" section referenced Dead Reckoning's
   `src/portfolio/` and Fresh/Preact `web/` structure; rewritten for this repo's actual setup
-  (`Deno.test` suites under `tests/`, run via `deno task test`; `PgCorpus` integration tests gated
-  on `DATABASE_URL` against a throwaway Postgres, never the shared one; the
+  (`Deno.test` suites under `tests/`, run via `deno task test`; DB-backed integration tests
+  (`PgCorpus`, `BriefingStore`, `ThresholdStore`, `FactStore`) gated on `PARALLAX_FIX_TEST_DB=1` via
+  `tests/db_test_guard.ts`'s `testDatabaseUrl()`, against a throwaway Postgres, never the shared one
+  — **not just on `DATABASE_URL` being present**, after a 2026-08-09 incident where
+  `deno task
+  test` (which auto-loads `.env`, whose `DATABASE_URL` is nucklehead's live corpus) ran
+  several tests' `.clear()` setup against production and wiped it, with no backup to restore from
+  (`parallax-fix-postgres` was never added to `/srv/backups/pg-backup.sh`'s container list — still
+  true, still worth fixing). `PARALLAX_FIX_TEST_DB` decouples "a DB URL happens to be set" from "it
+  is safe to clear," so `deno task test` is safe by default now; the
   `FakeSource`/`FakeCorpus`/`FakeEmbedder` fake-port idiom already established in
   `tests/bluesky_service_test.ts`/`tests/corpus_test.ts`) and an honest note that `src/web/static/`
   has **no committed automated test harness** (`deno task check` is fmt+lint+check only, not
