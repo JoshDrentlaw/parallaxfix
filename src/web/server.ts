@@ -584,15 +584,20 @@ async function draftTopicFacts(id: string, topicsDir: string): Promise<Response>
  * before there's an id to attach anything to.
  */
 async function suggestTopicFields(req: Request): Promise<Response> {
-  if (!Deno.env.get("ANTHROPIC_API_KEY")) {
-    return errorJson(503, "ANTHROPIC_API_KEY is not set — topic suggestions need the Claude API");
-  }
+  // Input validation before the service-config check: a malformed request is
+  // a 400 regardless of whether ANTHROPIC_API_KEY happens to be set — the
+  // opposite order made this endpoint's behavior depend on environment
+  // secrets in a way its own test caught (passed with a local key, failed in
+  // CI without one).
   const body = await readJsonBody<
     { description?: unknown; keywords?: unknown; entities?: unknown }
   >(req);
   if (body instanceof Response) return body;
   const description = typeof body.description === "string" ? body.description.trim() : "";
   if (!description) return errorJson(400, "description is required");
+  if (!Deno.env.get("ANTHROPIC_API_KEY")) {
+    return errorJson(503, "ANTHROPIC_API_KEY is not set — topic suggestions need the Claude API");
+  }
   try {
     const { AnthropicTopicSuggestions } = await import("../ingestion/suggest.ts");
     const suggestions = await new AnthropicTopicSuggestions().suggest({
