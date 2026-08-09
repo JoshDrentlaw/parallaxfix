@@ -1,48 +1,60 @@
-/* Parallax Fix — dark-mode first. Light theme is the override, not the default. */
+/* Parallax Fix — dark-mode first. Light theme is the override, not the default.
+
+   Palette: an "evidence board" — warm paper/ink neutrals instead of a flat
+   navy-on-navy control-panel look, with brass as the single accent (links,
+   focus rings, the primary button, the "hot" velocity pill) and teal/amber/
+   rust carrying the semantic meanings (verified/subjective/caution) that
+   were already in the app, just recolored to sit inside the warm palette
+   instead of a cold blue-green-red one. */
 
 :root,
 :root[data-theme="dark"] {
-  --bg: #0c0f16;
-  --surface: #141926;
-  --surface-2: #1a2133;
-  --border: #263049;
-  --text: #dbe3f4;
-  --muted: #8b96b0;
-  --accent: #7fb0ff;
-  /* #3d7bfd (white text) measured 3.85:1 — below WCAG AA's 4.5:1 for the
-     "Generate briefing" button, the app's single most important action, in
-     the theme it ships with by default. This clears 4.94:1. */
-  --accent-strong: #3a6bd6;
-  --ok: #46b881;
+  --bg: #15171b;
+  --surface: #1e2126;
+  --surface-2: #23262c;
+  --border: #2c2f36;
+  --text: #e7e2d2;
+  --muted: #9a9483;
+  /* Brass serves both roles in dark theme: bright enough for inline
+     link/text use against --bg (10.35:1) and --surface (9.32:1), and for
+     dark ink text on top of it as a button background (10.64:1) — see
+     --on-accent below. */
+  --accent: #f0bc6a;
+  --accent-strong: #f0bc6a;
+  --on-accent: #1c1206;
+  --ok: #6cc0ab;
   --warn: #e0b454;
   --bad: #e2646e;
-  --ev-primary: #46b881;
-  --ev-reported: #7fb0ff;
+  --ev-primary: #6cc0ab;
+  --ev-reported: var(--muted);
   --ev-opinion: #e0b454;
-  --ev-unsourced: #97a0b5;
+  --ev-unsourced: #e2646e;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 26px -14px rgba(0, 0, 0, 0.55);
   color-scheme: dark;
 }
 
 :root[data-theme="light"] {
-  --bg: #f4f6fa;
+  --bg: #f3efe4;
   --surface: #ffffff;
-  --surface-2: #eef1f7;
-  --border: #d4dae6;
-  --text: #1d2536;
-  --muted: #5d6880;
-  --accent: #2b62d9;
-  --accent-strong: #2b62d9;
-  --ok: #1e8a5c;
-  /* #a3781a measured 3.99:1 against the white surface — below WCAG AA's
-     4.5:1, on the "opinion" evidence badge and blind-spot signal text.
-     This clears 4.82:1. Dark theme's equivalent already clears 9:1+, no
-     change needed there. */
+  --surface-2: #faf7ef;
+  --border: #ddd5bf;
+  --text: #2a2620;
+  --muted: #756d5c;
+  /* Two brass shades: --accent is dark enough for inline text on light
+     backgrounds (5.67:1 on --surface, 4.93:1 on --bg); --accent-strong is
+     the lighter, more saturated brass used as a button background, paired
+     with --on-accent (dark ink, 4.61:1) rather than white text. */
+  --accent: #86601f;
+  --accent-strong: #a8752c;
+  --on-accent: #1c1206;
+  --ok: #1c4c41;
   --warn: #916c15;
   --bad: #bb3a45;
-  --ev-primary: #1e8a5c;
-  --ev-reported: #2b62d9;
+  --ev-primary: #1c4c41;
+  --ev-reported: var(--muted);
   --ev-opinion: #916c15;
-  --ev-unsourced: #5d6880;
+  --ev-unsourced: #bb3a45;
+  --shadow: 0 1px 2px rgba(42, 38, 32, 0.05), 0 10px 26px -14px rgba(42, 38, 32, 0.18);
   color-scheme: light;
 }
 
@@ -60,13 +72,21 @@ body {
   flex-direction: column;
 }
 
+.serif {
+  font-family: Georgia, "Iowan Old Style", "Palatino Linotype", "Book Antiqua", ui-serif, serif;
+}
+.mono {
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
 header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
   flex-wrap: wrap;
-  padding: 1rem 1.5rem;
+  padding: 1.1rem 1.5rem;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
 }
@@ -76,13 +96,17 @@ header {
   align-items: center;
   gap: 0.8rem;
 }
+.brand img {
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
 .brand h1 {
   margin: 0;
-  font-size: 1.25rem;
-  letter-spacing: 0.02em;
+  font-size: 1.3rem;
+  font-weight: 600;
 }
 .tagline {
-  margin: 0;
+  margin: 0.15rem 0 0;
   color: var(--muted);
   font-size: 0.8rem;
 }
@@ -90,7 +114,7 @@ header {
 .header-right {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.9rem;
 }
 
 #theme-toggle {
@@ -113,8 +137,9 @@ main {
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 1rem 1.25rem;
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  padding: 1.1rem 1.3rem;
   margin-bottom: 1rem;
 }
 
@@ -196,15 +221,17 @@ button {
   background: var(--surface-2);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 9px;
   padding: 0.5rem 1rem;
   font: inherit;
+  font-weight: 500;
   cursor: pointer;
 }
 button.primary {
   background: var(--accent-strong);
   border-color: var(--accent-strong);
-  color: #fff;
+  color: var(--on-accent);
+  font-weight: 600;
 }
 button:disabled {
   opacity: 0.5;
@@ -256,30 +283,32 @@ code {
   color: var(--bad);
 }
 
-/* ── chips ────────────────────────────────────────────────────────────── */
+/* ── status line ──────────────────────────────────────────────────────── */
+/* A slim inline strip, not a row of boxed chips — the app's own operating
+   status (corpus/Claude/Reddit/Bluesky/blind spots) is ambient context, not
+   the main event, so it reads quietly next to the theme toggle instead of
+   competing with the actual content for attention. */
 
 .chips {
   display: inline-flex;
-  gap: 0.4rem;
+  align-items: center;
+  gap: 0.85rem;
   flex-wrap: wrap;
+  font-size: 0.8rem;
+  color: var(--muted);
 }
 .chip {
   display: inline-flex;
   align-items: center;
-  gap: 0.35em;
-  font-size: 0.72rem;
-  color: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 0.15rem 0.6rem;
-  background: var(--surface-2);
+  gap: 0.4em;
   white-space: nowrap;
 }
 .chip .dot {
-  width: 0.5em;
-  height: 0.5em;
+  width: 0.45em;
+  height: 0.45em;
   border-radius: 50%;
   background: var(--muted);
+  flex-shrink: 0;
 }
 .chip.on .dot {
   background: var(--ok);
@@ -300,41 +329,142 @@ code {
   color: var(--muted);
   margin: 1.4rem 0 0.6rem;
 }
-.section-title .p {
-  color: var(--accent);
-}
 
-/* coverage */
-.coverage {
-  border-left: 3px solid var(--accent);
-}
-.coverage .meta {
-  color: var(--muted);
-  font-size: 0.8rem;
-  margin: 0 0 0.7rem;
-}
-.coverage-grid {
+/* Briefing body sections (Overview/Background/Narratives) use a calmer
+   heading than the all-caps .section-title above: a normal-weight title
+   plus a small muted caption carrying the epistemic caveat, so the caveat
+   is still always present but doesn't have to shout to be honest. */
+.section-head {
   display: flex;
-  gap: 0.6rem;
+  align-items: baseline;
+  gap: 0.5rem;
   flex-wrap: wrap;
-  margin-bottom: 0.9rem;
+  margin: 1.7rem 0 0.6rem;
 }
-.src-tile {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 0.45rem 0.85rem;
-  min-width: 6.5rem;
-}
-.src-tile .n {
-  font-size: 1.25rem;
+.section-head h3 {
+  margin: 0;
+  font-size: 1.04rem;
   font-weight: 600;
 }
-.src-tile .s {
+.section-head .cap {
   color: var(--muted);
-  font-size: 0.75rem;
+  font-size: 0.78rem;
 }
 
+/* case header — the briefing's headline, generated-at meta, and at-a-glance
+   stat tiles. Coverage lives here too (a details/summary strip below the
+   tiles), since what the run could/couldn't see is context for the
+   headline numbers, not a separate topic. */
+.case-head {
+  margin: 1.5rem 0 1.1rem;
+}
+.case-head .eyebrow {
+  font-size: 0.72rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 700;
+  margin: 0 0 0.4rem;
+}
+.case-head h2 {
+  margin: 0;
+  font-size: 1.6rem;
+  font-weight: 600;
+}
+.case-head .meta {
+  color: var(--muted);
+  font-size: 0.84rem;
+  margin: 0.35rem 0 0;
+}
+
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.7rem;
+  margin-top: 1.1rem;
+}
+.stat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 0.75rem 0.9rem;
+}
+.stat .n {
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+.stat .l {
+  color: var(--muted);
+  font-size: 0.76rem;
+  margin-top: 0.1rem;
+}
+
+/* coverage — a slim pill row, collapsible into the fuller breakdown +
+   blind-spot signal text rather than always showing all of it. */
+.coverage {
+  margin-top: 0.8rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.75rem 0.95rem;
+}
+.coverage summary {
+  cursor: pointer;
+  list-style: none;
+}
+.coverage summary::-webkit-details-marker {
+  display: none;
+}
+.coverage-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+}
+.cov-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.22rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+.cov-pill .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.cov-pill.ok {
+  color: var(--ok);
+}
+.cov-pill.gap {
+  color: var(--bad);
+}
+.coverage-toggle {
+  margin-left: auto;
+  color: var(--accent);
+  font-size: 0.78rem;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: nowrap;
+}
+.coverage-detail {
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px dashed var(--border);
+  font-size: 0.85rem;
+}
+.coverage-detail .meta {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin: 0 0 0.6rem;
+}
 .gap {
   display: flex;
   gap: 0.6rem;
@@ -366,6 +496,7 @@ code {
 .overview p {
   margin: 0.4rem 0;
   white-space: pre-wrap;
+  line-height: 1.65;
 }
 .overview .placeholder {
   color: var(--muted);
@@ -373,10 +504,12 @@ code {
 }
 
 /* background facts — deliberately distinct from .overview/.narrative so it
-   can't be mistaken for a claim pulled from the discourse: a dashed border
-   (vs. the narrative/coverage cards' solid one) and no evidence badge. */
+   can't be mistaken for a claim pulled from the discourse: a solid accent
+   bar down the left edge (vs. the narrative/coverage cards' plain border)
+   and no evidence badge. */
 .background {
-  border-style: dashed;
+  border-left: 3px solid var(--accent);
+  background: var(--surface-2);
 }
 .background-fact {
   padding: 0.5rem 0;
@@ -401,133 +534,149 @@ code {
   text-decoration: underline;
 }
 
-/* narratives */
+/* ── narratives ───────────────────────────────────────────────────────── */
+/* Each narrative is a collapsible card — its head (rank/title/pills) is the
+   always-visible <summary>, its evidence+claims are the collapsible body.
+   Only the first opens by default, so a run with a dozen-plus narratives
+   still opens as a short, scannable list instead of everything unrolled at
+   once. */
 .narrative {
-  margin-bottom: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  margin-bottom: 0.75rem;
+  overflow: hidden;
 }
 .narrative-head {
   display: flex;
-  align-items: baseline;
-  gap: 0.7rem;
-  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.9rem 1.1rem;
+  cursor: pointer;
+  list-style: none;
+}
+.narrative-head::-webkit-details-marker {
+  display: none;
 }
 .narrative-head .rank {
-  color: var(--accent);
-  font-weight: 700;
+  color: var(--muted);
+  font-size: 0.82rem;
+  width: 1.6rem;
+  flex-shrink: 0;
+}
+.narrative-head .title-block {
+  flex: 1 1 auto;
+  min-width: 10rem;
 }
 .narrative-head .label {
   margin: 0;
   font-weight: 600;
-  font-size: 1.02rem;
+  font-size: 1.04rem;
 }
 .narrative-head .label.unlabeled {
   color: var(--muted);
   font-weight: 400;
   font-style: italic;
 }
-/* No white-space: nowrap — the concatenated velocity/relevance/count/
-   first-seen string measured 400+px wide on its own at 375px, forcing a
-   page-wide horizontal overflow. flex-wrap on .narrative-head (above)
-   only lets this whole span drop to its own line; it still needs to be
-   able to wrap internally once there. */
-.narrative-meta {
+.narrative-head .sub {
   color: var(--muted);
   font-size: 0.78rem;
-  margin-left: auto;
-  min-width: 0;
+  margin-top: 0.15rem;
 }
-.velocity-bucket {
+.narrative-head .pills {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.narrative-head .chev {
+  color: var(--muted);
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+.narrative[open] > .narrative-head .chev {
+  transform: rotate(90deg);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
   font-weight: 600;
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+  white-space: nowrap;
   cursor: help;
 }
-.velocity-bucket.hot {
+.pill .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.pill.hot {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
   color: var(--accent);
 }
-.velocity-bucket.active {
-  color: var(--text);
-}
-.velocity-bucket.quiet {
-  color: var(--muted);
-}
-.relevance-bucket {
-  margin-left: 0.5rem;
-  cursor: help;
-}
-.relevance-bucket::before {
-  content: "· ";
-}
-.relevance-bucket.strong {
+.pill.active {
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
   color: var(--ok);
 }
-.relevance-bucket.plausible {
+.pill.quiet {
+  background: color-mix(in srgb, var(--muted) 14%, transparent);
+  color: var(--muted);
+}
+.pill.strong {
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+  color: var(--ok);
+}
+.pill.plausible {
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
   color: var(--warn);
 }
-.relevance-bucket.weak {
+.pill.weak {
+  background: color-mix(in srgb, var(--muted) 12%, transparent);
   color: var(--muted);
 }
 
-/* ── narrative table of contents ─────────────────────────────────────────
-   Shown only when there's more than one narrative — a long briefing (the
-   app's own k=200 default implies real runs can produce well more than the
-   6 narratives a modest fixture already hit 5530px of mobile scroll with)
-   had no way to jump between them, sighted or not. */
-.narrative-toc {
-  margin: 0.6rem 0 0;
+.narrative-body {
+  padding: 0 1.1rem 1.1rem;
+  border-top: 1px solid var(--border);
 }
-.narrative-toc ol {
-  margin: 0.4rem 0 0;
-  padding-left: 1.3rem;
-  font-size: 0.85rem;
+.narrative-body-inner {
+  padding-top: 1rem;
 }
-.narrative-toc li {
-  margin: 0.2rem 0;
-}
-.narrative-toc a {
-  color: var(--accent);
-  text-decoration: none;
-}
-.narrative-toc a:hover {
-  text-decoration: underline;
-}
-
-/* Evidence (exemplars + claims) collapses by default past the first couple
-   narratives, so a long briefing doesn't force 5000+px of scroll just to
-   see every narrative's headline. The head (rank/label/meta) stays outside
-   this <details>, always visible, so the ToC above always has somewhere
-   real to jump to. */
-.narrative-evidence summary {
-  cursor: pointer;
-  font-size: 0.8rem;
+.evidence-label {
+  font-size: 0.74rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
   color: var(--muted);
-  list-style: none;
-  margin-top: 0.5rem;
+  font-weight: 600;
+  margin: 0 0 0.55rem;
 }
-.narrative-evidence summary::-webkit-details-marker {
-  display: none;
-}
-.narrative-evidence summary::before {
-  content: "▸ ";
-  display: inline-block;
-}
-.narrative-evidence[open] summary::before {
-  content: "▾ ";
+.evidence-label.claims-label {
+  margin-top: 1.05rem;
 }
 
 .exemplar {
-  margin: 0.65rem 0 0;
-  padding-left: 0.9rem;
-  border-left: 2px solid var(--border);
+  margin: 0 0 0.5rem;
+  background: var(--surface-2);
+  border-radius: 10px;
+  padding: 0.65rem 0.85rem;
 }
 .exemplar .excerpt {
   margin: 0;
+  font-style: italic;
 }
 .provenance {
   color: var(--muted);
   font-size: 0.78rem;
-  margin: 0.15rem 0 0;
+  margin: 0.4rem 0 0;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 .provenance a {
   color: var(--accent);
@@ -537,15 +686,34 @@ code {
   text-decoration: underline;
 }
 .provenance .src-tag {
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  padding: 0 0.35em;
-  font-size: 0.72rem;
-  background: var(--surface-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--border);
+  color: var(--text);
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.provenance .src-tag.bluesky {
+  background: color-mix(in srgb, #3a8bd8 30%, var(--border));
+}
+.provenance .src-tag.gdelt {
+  background: color-mix(in srgb, var(--ok) 35%, var(--border));
+}
+.provenance .src-tag.reddit {
+  background: color-mix(in srgb, var(--bad) 30%, var(--border));
 }
 
 .claims {
-  margin-top: 0.8rem;
+  margin-top: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 /* flex-wrap + no white-space:nowrap on .meta — a real verify_hint (e.g.
    "cross-check against the official county registrar's records") measured
@@ -555,12 +723,13 @@ code {
   display: flex;
   flex-wrap: wrap;
   gap: 0.55rem;
-  align-items: baseline;
+  align-items: flex-start;
   padding: 0.28rem 0;
   font-size: 0.9rem;
 }
 .claim .info-chip-wrap {
   flex-shrink: 0;
+  margin-top: 0.1rem;
 }
 .claim .text {
   min-width: 0;
@@ -580,40 +749,45 @@ code {
 }
 
 .badge {
-  font-size: 0.68rem;
-  letter-spacing: 0.04em;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
   text-transform: uppercase;
-  border-radius: 5px;
-  padding: 0.1em 0.5em;
+  border-radius: 999px;
+  padding: 0.18rem 0.55rem;
   white-space: nowrap;
-  border: 1px solid currentColor;
+  border: none;
   flex-shrink: 0;
 }
 .badge.primary_record {
+  background: color-mix(in srgb, var(--ev-primary) 18%, transparent);
   color: var(--ev-primary);
 }
 .badge.reported {
+  background: color-mix(in srgb, var(--ev-reported) 16%, transparent);
   color: var(--ev-reported);
 }
 .badge.opinion {
+  background: color-mix(in srgb, var(--ev-opinion) 18%, transparent);
   color: var(--ev-opinion);
 }
 .badge.unsourced {
+  background: color-mix(in srgb, var(--ev-unsourced) 18%, transparent);
   color: var(--ev-unsourced);
 }
 
 /* Evidence-type badges double as info-chip triggers (tap for a definition) —
-   reset the circular "?" chip sizing back to the badge pill look; color and
-   shape otherwise stay identical to a plain (non-interactive) .badge. */
+   the base .badge/.badge.<type> rules above already give the pill its shape
+   and tinted color; this only resets the circular "?" chip sizing that
+   .info-chip normally imposes back down to the badge's own pill dimensions. */
 .badge.info-chip {
   width: auto;
   height: auto;
-  font-size: 0.68rem;
-  letter-spacing: 0.04em;
+  font-size: 0.66rem;
+  letter-spacing: 0.03em;
   text-transform: uppercase;
-  border-radius: 5px;
-  padding: 0.1em 0.5em;
-  background: transparent;
+  border-radius: 999px;
+  padding: 0.18rem 0.55rem;
 }
 
 .empty {
@@ -815,7 +989,7 @@ code {
   border-radius: 8px;
   color: var(--text);
   font-size: 0.78rem;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--shadow);
 }
 
 button.danger {
@@ -959,5 +1133,11 @@ footer {
   .info-chip {
     width: 1.6rem;
     height: 1.6rem;
+  }
+  .stat-row {
+    grid-template-columns: 1fr 1fr;
+  }
+  .narrative-head {
+    flex-wrap: wrap;
   }
 }
