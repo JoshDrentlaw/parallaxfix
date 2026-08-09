@@ -2,6 +2,7 @@ import { assert, assertEquals } from "@std/assert";
 import postgres from "postgres";
 import type { EmbeddingPort, Item, RerankEmbeddingPort } from "../src/ports.ts";
 import { adHocTopic, buildTopicQuery, isExcluded, slugifyTopicId } from "../src/ingestion/topic.ts";
+import { testDatabaseUrl } from "./db_test_guard.ts";
 
 // ── pure helpers (no DB) ──────────────────────────────────────────────────────
 
@@ -125,7 +126,7 @@ function cosineSimilarity(a: number[], b: number[]): number {
   return dot / (Math.sqrt(na) * Math.sqrt(nb));
 }
 
-const DATABASE_URL = Deno.env.get("DATABASE_URL");
+const DATABASE_URL = testDatabaseUrl();
 
 Deno.test({
   name: "PgCorpus: append + dedupe + semantic retrieve + exclude filter",
@@ -194,8 +195,8 @@ Deno.test({
       // retrieveForAnalysis carries per-item similarity (relevance threading) and
       // applies the same floor.
       const forAnalysis = await corpus.retrieveForAnalysis(topic, 10, { minSimilarity: 0.99 });
-      assert(!forAnalysis.some((r) => r.item.id === "c"));
-      assert(forAnalysis.every((r) => typeof r.similarity === "number"));
+      assert(!forAnalysis.items.some((r) => r.item.id === "c"));
+      assert(forAnalysis.items.every((r) => typeof r.similarity === "number"));
     } finally {
       await corpus.close();
     }
@@ -249,7 +250,9 @@ Deno.test({
       const topic = adHocTopic(["wildfire", "riverside"]);
       topic.description = "wildfire evacuations near riverside";
       const results = await corpus.retrieveForAnalysis(topic, 10);
-      assertEquals(results.map((r) => r.item.id), ["a"]);
+      assertEquals(results.items.map((r) => r.item.id), ["a"]);
+      assertEquals(results.excluded_count, 0);
+      assertEquals(results.excluded_sample, []);
     } finally {
       await corpus.close();
     }
@@ -285,7 +288,7 @@ Deno.test({
 
       const first = await corpus.retrieveForAnalysis(topic, 10);
       assertEquals(
-        first.map((r) => r.item.id),
+        first.items.map((r) => r.item.id),
         ["a"],
         "excluded item never reaches the rerank tier",
       );
@@ -295,6 +298,13 @@ Deno.test({
         "only the non-excluded candidate is sent",
       );
 
+      // The excluded candidate is reported, not silently dropped (P1: a
+      // topic's own exclude list is a self-inflicted coverage gap).
+      assertEquals(first.excluded_count, 1);
+      assertEquals(first.excluded_sample.length, 1);
+      assertEquals(first.excluded_sample[0].matched_term, "basketball");
+      assertEquals(first.excluded_sample[0].source, excluded.source);
+
       // The returned score is the rerank tier's, not the local tier's.
       const [qvec, [avec]] = await Promise.all([
         rerankEmbedder.embedQuery(buildTopicQuery(topic)),
@@ -302,8 +312,8 @@ Deno.test({
       ]);
       const expected = cosineSimilarity(qvec, avec);
       assert(
-        Math.abs(first[0].similarity - expected) < 1e-9,
-        `similarity should be the rerank score (${expected}), got ${first[0].similarity}`,
+        Math.abs(first.items[0].similarity - expected) < 1e-9,
+        `similarity should be the rerank score (${expected}), got ${first.items[0].similarity}`,
       );
 
       // Cached on the row.

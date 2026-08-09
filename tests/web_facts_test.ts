@@ -1,5 +1,6 @@
 import { assert, assertEquals } from "@std/assert";
 import { createHandler } from "../src/web/server.ts";
+import { testDatabaseUrl } from "./db_test_guard.ts";
 
 const get = (path: string) => new Request(`http://localhost${path}`);
 const post = (path: string, body: unknown) =>
@@ -10,7 +11,7 @@ const post = (path: string, body: unknown) =>
   });
 const del = (path: string) => new Request(`http://localhost${path}`, { method: "DELETE" });
 
-const DATABASE_URL = Deno.env.get("DATABASE_URL");
+const DATABASE_URL = testDatabaseUrl();
 
 Deno.test("web: Track B fact/tag routes 503 without a corpus", async () => {
   const handler = createHandler({ databaseUrl: () => undefined });

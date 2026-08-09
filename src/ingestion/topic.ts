@@ -144,9 +144,17 @@ export function matchesAnyTopic(item: Item, topics: TopicDefinition[]): boolean 
  * semantic retrieval (Phase 1) where keyword *matching* is no longer required
  * but exclusions still cut noise. Case-insensitive substring match.
  */
-export function isExcluded(item: Item, topic: TopicDefinition): boolean {
+/** The first exclude term this item's text matches (case-insensitive substring), or null. */
+export function matchingExcludeTerm(item: Item, topic: TopicDefinition): string | null {
   const hay = item.text.toLowerCase();
-  return topic.exclude.some((ex) => ex !== "" && hay.includes(ex.toLowerCase()));
+  for (const ex of topic.exclude) {
+    if (ex !== "" && hay.includes(ex.toLowerCase())) return ex;
+  }
+  return null;
+}
+
+export function isExcluded(item: Item, topic: TopicDefinition): boolean {
+  return matchingExcludeTerm(item, topic) !== null;
 }
 
 /**

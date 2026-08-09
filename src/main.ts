@@ -254,14 +254,20 @@ async function analyze(args: Args): Promise<number> {
   const { extractClaims } = await import("./analysis/claims.ts");
 
   const corpus = new PgCorpus({ databaseUrl: dbUrl, embedder: new LocalEmbedder() });
-  let ranked: import("./ports.ts").RankedItem[];
+  let retrieval: import("./ports.ts").AnalysisRetrieval;
   try {
-    ranked = await corpus.retrieveForAnalysis(topic, k, { minSimilarity });
+    retrieval = await corpus.retrieveForAnalysis(topic, k, { minSimilarity });
   } finally {
     await corpus.close();
   }
+  const ranked = retrieval.items;
   const items = ranked.map((r) => r.item);
   const similarityById = new Map(ranked.map((r) => [r.item.id, r.similarity]));
+  if (retrieval.excluded_count > 0) {
+    console.log(
+      `\n${retrieval.excluded_count} item(s) dropped by "${topic.id}"'s exclude list this run.`,
+    );
+  }
 
   if (items.length === 0) {
     console.log(`\nNo strong matches for "${topic.id}" — nothing cleared the similarity floor.`);

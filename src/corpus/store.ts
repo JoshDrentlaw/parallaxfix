@@ -14,15 +14,20 @@
 
 import postgres from "postgres";
 import type {
+  AnalysisRetrieval,
   CorpusPort,
   EmbeddingPort,
+  ExcludedSample,
   Item,
   RankedItem,
   RerankEmbeddingPort,
   RetrieveOptions,
   TopicDefinition,
 } from "../ports.ts";
-import { buildTopicQuery, isExcluded } from "../ingestion/topic.ts";
+import { buildTopicQuery, isExcluded, matchingExcludeTerm } from "../ingestion/topic.ts";
+
+/** Cap on how many excluded candidates retrieveForAnalysis keeps as a sample, per run. */
+const MAX_EXCLUDED_SAMPLE = 8;
 
 type Sql = ReturnType<typeof postgres>;
 type Json = Parameters<Sql["json"]>[0];
@@ -255,7 +260,7 @@ export class PgCorpus implements CorpusPort {
     topic: TopicDefinition,
     k: number,
     opts: RetrieveOptions = {},
-  ): Promise<RankedItem[]> {
+  ): Promise<AnalysisRetrieval> {
     const floor = opts.minSimilarity ?? this.#minSimilarity;
     const qvec = await this.#embedder.embedQuery(buildTopicQuery(topic));
     const lit = vectorLiteral(qvec);
@@ -275,6 +280,8 @@ export class PgCorpus implements CorpusPort {
       ORDER BY embedding <=> ${lit}::vector
       LIMIT ${poolSize}
     `;
+    let excludedCount = 0;
+    const excludedSample: ExcludedSample[] = [];
     const candidates = rows
       .map((r) => {
         const row = r as unknown as Record<string, unknown>;
@@ -287,13 +294,31 @@ export class PgCorpus implements CorpusPort {
           analyzedModel: (row.analyzed_model as string | null) ?? null,
         };
       })
-      .filter((m) => !isExcluded(m.item, topic));
+      .filter((m) => {
+        const term = matchingExcludeTerm(m.item, topic);
+        if (term === null) return true;
+        excludedCount++;
+        if (excludedSample.length < MAX_EXCLUDED_SAMPLE) {
+          excludedSample.push({
+            text: m.item.text.slice(0, 240),
+            source: m.item.source,
+            matched_term: term,
+          });
+        }
+        return false;
+      });
+
+    const finish = (items: RankedItem[]): AnalysisRetrieval => ({
+      items,
+      excluded_count: excludedCount,
+      excluded_sample: excludedSample,
+    });
 
     if (!this.#rerankEmbedder) {
-      return candidates.filter((m) => m.similarity >= floor).slice(0, k);
+      return finish(candidates.filter((m) => m.similarity >= floor).slice(0, k));
     }
     const reranked = await this.#rerank(topic, candidates);
-    return reranked.filter((m) => m.similarity >= floor).slice(0, k);
+    return finish(reranked.filter((m) => m.similarity >= floor).slice(0, k));
   }
 
   /**

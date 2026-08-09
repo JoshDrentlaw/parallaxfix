@@ -53,6 +53,23 @@ export interface CoverageReport {
    * declaration, never replaces it. Present only for platforms with references.
    */
   blind_spot_signals?: BlindSpotSignal[];
+  /**
+   * A topic's own exclude list is a self-inflicted coverage gap — a hard
+   * negative silently drops a candidate before it ever reaches a narrative,
+   * the same "absence of signal is not absence of the thing" concern P1
+   * exists for, just caused by the user's own topic definition instead of a
+   * source being unreachable. Undefined when the topic had no exclude terms
+   * (nothing to report, not merely nothing excluded).
+   */
+  excluded?: { count: number; sample: ExcludedSample[] };
+}
+
+/** A retrieval candidate dropped by a topic's exclude list, kept for coverage reporting. */
+export interface ExcludedSample {
+  text: string;
+  source: string;
+  /** Which exclude term matched. */
+  matched_term: string;
 }
 
 /**
@@ -107,6 +124,19 @@ export interface RankedItem {
   item: Item;
   /** Cosine similarity in [-1, 1]; ~1 = very close in meaning, ~0 = unrelated. */
   similarity: number;
+}
+
+/**
+ * retrieveForAnalysis's result: the ranked items plus honest accounting of
+ * what the topic's own exclude list dropped along the way (see
+ * CoverageReport.excluded) — an exclude list is a hard negative applied
+ * before the similarity floor even runs, so without this, over-excluding is
+ * invisible by construction.
+ */
+export interface AnalysisRetrieval {
+  items: RankedItem[];
+  excluded_count: number;
+  excluded_sample: ExcludedSample[];
 }
 
 export interface RetrieveOptions {

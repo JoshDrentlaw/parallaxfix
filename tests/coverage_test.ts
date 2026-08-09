@@ -3,6 +3,7 @@ import type { Item } from "../src/ports.ts";
 import {
   assembleCoverageReport,
   DECLARED_BLIND_SPOTS,
+  formatCoverageReport,
   type SourceResult,
 } from "../src/briefing/coverage.ts";
 
@@ -72,4 +73,31 @@ Deno.test("CoverageReport: a source reporting itself unavailable isn't duplicate
   assertEquals(tiktoks.length, 1, "tiktok appears once");
   assertEquals(tiktoks[0].reason, "custom reason", "the source's own reason wins");
   assert(r.sources_unavailable.some((u) => u.source === "instagram"));
+});
+
+Deno.test("CoverageReport: excluded is undefined by default; carries count+sample when provided", () => {
+  const withoutExcludes = assembleCoverageReport("t", []);
+  assertEquals(withoutExcludes.excluded, undefined);
+
+  const withExcludes = assembleCoverageReport("t", [], new Date(), [], {
+    count: 3,
+    sample: [{ text: "a job-search post", source: "reddit", matched_term: "job search" }],
+  });
+  assertEquals(withExcludes.excluded, {
+    count: 3,
+    sample: [{ text: "a job-search post", source: "reddit", matched_term: "job search" }],
+  });
+});
+
+Deno.test("formatCoverageReport: renders excluded count and sample only when there's something to show", () => {
+  const noExcludes = assembleCoverageReport("t", []);
+  assert(!formatCoverageReport(noExcludes).some((l) => l.includes("excluded")));
+
+  const withExcludes = assembleCoverageReport("t", [], new Date(), [], {
+    count: 2,
+    sample: [{ text: "a job-search post", source: "reddit", matched_term: "job search" }],
+  });
+  const lines = formatCoverageReport(withExcludes);
+  assert(lines.some((l) => l.includes("excluded") && l.includes("2 item")));
+  assert(lines.some((l) => l.includes("job search") && l.includes("reddit")));
 });

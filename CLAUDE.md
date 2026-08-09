@@ -79,6 +79,48 @@ Headed for a multi-user hosted deployment (droplet, signups), so we overrode the
   narrative's raw velocity/relevance across every stored briefing
   (`BriefingStore.allNarrativeScores`) so cutoffs get set where the real distribution separates, not
   guessed — same principle as Job Radar's own tuning page.
+- **Topic-assist (2026-08)**, added after a live production topic (`data-centers`, one generic
+  keyword + mega-cap entity names + an empty exclude list) surfaced a personal job-search Reddit
+  post as its top-ranked narrative twice in a row. Root cause: a topic's keyword/entity/exclude
+  lists are the fields a user is least equipped to fill in well when they aren't already a domain
+  expert in what they're tracking — unlike the plain-English description, which `buildTopicQuery()`
+  (`src/ingestion/topic.ts`) folds into the same embedding query as keywords/entities, so it already
+  carries real semantic weight for free. Two draft-and-approve LLM helpers close that gap, both
+  following the existing `AnthropicReferenceFacts` (`src/facts/reference.ts`) pattern — web search,
+  structured JSON output, never persist anything, client approves before it's saved:
+  - `src/ingestion/suggest.ts` (`AnthropicTopicSuggestions`, `POST /api/topics/suggest-fields`) —
+    from a plain-English description, proposes candidate keywords/entities/exclude terms before a
+    topic even has an id, using web search to find the domain's real vocabulary rather than guessing
+    generically.
+  - `src/briefing/exclude_suggest.ts` (`AnthropicExcludeSuggestions`,
+    `POST /api/topics/:id/exclude-suggestions`) — mines a topic's own most recent briefing for
+    "weak" narratives (below `ThresholdStore`'s `plausible` cutoff — reusing the tuning page's
+    already-tuned line rather than a new magic number) and proposes exclude terms for the ones that
+    genuinely look like noise. Only works after a topic has been briefed at least once; complements
+    `suggest-fields`, which works sight-unseen.
+  - Both are wired into the topic manager UI (index.html/app.js) as "Suggest ... with Claude"
+    buttons; suggestions render as reviewable cards/rows, never auto-applied to the saved topic.
+- **Velocity-gaming fix + exclude-list visibility (2026-08-09)**, found by pulling the same thread:
+  a `data-centers` briefing's top-ranked narrative was an unrelated earthquake-alert bot's 3-post
+  burst (3.0/hr) outranking a well-corroborated, multi-source story, because raw items/hour rewards
+  a burst of reposts exactly as much as genuine independent coverage.
+  - `src/analysis/cluster.ts`'s `distinctVoiceTimestamps()` collapses items to one (earliest)
+    timestamp per "voice" before scoring velocity — same author, or near-duplicate embeddings
+    (`DUPLICATE_VOICE_SIMILARITY = 0.93`, stricter than the 0.78 clustering threshold) across
+    different accounts (translation/syndication reposts). Verified against the real `briefTopic`
+    pipeline: the burst's velocity drops from what would have been 3.0/hr to 1.0/hr, matching a
+    single genuine voice — broad, multi-author coverage is no longer punished for being spread out.
+  - The other half of "how do I know if I'm over-excluding": `retrieveForAnalysis`
+    (`src/corpus/store.ts`) now reports what a topic's own exclude list actually dropped this run —
+    count + a capped sample with the matched term (`ExcludedSample`/`AnalysisRetrieval`, `ports.ts`)
+    — threaded through `CoverageReport.excluded` into the same coverage strip that already shows
+    "what this run couldn't see" (`renderCoverage`, app.js/app.css): a self-authored exclude list is
+    the same kind of gap P1 already exists to surface, just self-inflicted instead of a source being
+    unreachable.
+  - A "Not relevant? Quick-exclude" control on every narrative in the briefing view
+    (`quickExcludeControl`, app.js) — editable before saving, `PUT`s directly to the topic's exclude
+    list. Deliberately _not_ draft-and-approve like the topic-assist suggestions above: this is the
+    user's own explicit call on a specific narrative already in front of them, not an AI guess.
 
 ## Source rules
 
@@ -140,8 +182,16 @@ retargeted:
 
 - **Bobbie** (test writer) — her "what you write" section referenced Dead Reckoning's
   `src/portfolio/` and Fresh/Preact `web/` structure; rewritten for this repo's actual setup
-  (`Deno.test` suites under `tests/`, run via `deno task test`; `PgCorpus` integration tests gated
-  on `DATABASE_URL` against a throwaway Postgres, never the shared one; the
+  (`Deno.test` suites under `tests/`, run via `deno task test`; DB-backed integration tests
+  (`PgCorpus`, `BriefingStore`, `ThresholdStore`, `FactStore`) gated on `PARALLAX_FIX_TEST_DB=1` via
+  `tests/db_test_guard.ts`'s `testDatabaseUrl()`, against a throwaway Postgres, never the shared one
+  — **not just on `DATABASE_URL` being present**, after a 2026-08-09 incident where
+  `deno task
+  test` (which auto-loads `.env`, whose `DATABASE_URL` is nucklehead's live corpus) ran
+  several tests' `.clear()` setup against production and wiped it, with no backup to restore from
+  (`parallax-fix-postgres` was never added to `/srv/backups/pg-backup.sh`'s container list — still
+  true, still worth fixing). `PARALLAX_FIX_TEST_DB` decouples "a DB URL happens to be set" from "it
+  is safe to clear," so `deno task test` is safe by default now; the
   `FakeSource`/`FakeCorpus`/`FakeEmbedder` fake-port idiom already established in
   `tests/bluesky_service_test.ts`/`tests/corpus_test.ts`) and an honest note that `src/web/static/`
   has **no committed automated test harness** (`deno task check` is fmt+lint+check only, not

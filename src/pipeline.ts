@@ -162,14 +162,20 @@ export async function briefTopic(
     progress("VOYAGE_API_KEY not set — relevance ranked by the local embedder only");
   }
   const corpus = corpusFor(ctx, { rerank: true });
-  let ranked: import("./ports.ts").RankedItem[];
+  let retrieval: import("./ports.ts").AnalysisRetrieval;
   try {
-    ranked = await corpus.retrieveForAnalysis(topic, k, { minSimilarity: opts.minSimilarity });
+    retrieval = await corpus.retrieveForAnalysis(topic, k, { minSimilarity: opts.minSimilarity });
   } finally {
     await corpus.close();
   }
+  const ranked = retrieval.items;
   const items = ranked.map((r) => r.item);
   const similarityById = new Map(ranked.map((r) => [r.item.id, r.similarity]));
+  if (retrieval.excluded_count > 0) {
+    progress(
+      `${retrieval.excluded_count} item(s) dropped by "${topic.id}"'s exclude list this run`,
+    );
+  }
   if (items.length === 0) {
     // P1: "nothing cleared the floor" is a real, first-class answer — not
     // empty output that gets silently explained away downstream.
@@ -210,7 +216,15 @@ export async function briefTopic(
     items: its,
   }));
   const signals = summarizeBlindSpotSignals(items, { now });
-  const coverage = assembleCoverageReport(topic.id, results, now, signals);
+  const coverage = assembleCoverageReport(
+    topic.id,
+    results,
+    now,
+    signals,
+    topic.exclude.length > 0
+      ? { count: retrieval.excluded_count, sample: retrieval.excluded_sample }
+      : undefined,
+  );
 
   let briefing = assembleBriefing(topic.id, clusters, claims, itemsById, coverage, {
     generatedAt: now,

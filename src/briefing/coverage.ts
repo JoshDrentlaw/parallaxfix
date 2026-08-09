@@ -7,7 +7,7 @@
  * always reported as unavailable, never silently omitted.
  */
 
-import type { BlindSpotSignal, CoverageReport, Item } from "../ports.ts";
+import type { BlindSpotSignal, CoverageReport, ExcludedSample, Item } from "../ports.ts";
 
 /** Always-unavailable sources. The thing under investigation may live exactly here. */
 export const DECLARED_BLIND_SPOTS: { source: string; reason: string }[] = [
@@ -33,6 +33,7 @@ export function assembleCoverageReport(
   results: SourceResult[],
   runAt: Date = new Date(),
   blindSpotSignals: BlindSpotSignal[] = [],
+  excluded?: { count: number; sample: ExcludedSample[] },
 ): CoverageReport {
   const sources_queried: string[] = [];
   const items_per_source: Record<string, number> = {};
@@ -69,6 +70,7 @@ export function assembleCoverageReport(
     sources_unavailable,
     window: [oldest ?? runAt, newest ?? runAt],
     blind_spot_signals: blindSpotSignals.length ? blindSpotSignals : undefined,
+    excluded,
   };
 }
 
@@ -113,6 +115,12 @@ export function formatCoverageReport(r: CoverageReport): string[] {
   }
   if (r.blind_spot_signals?.length) {
     out.push("    (references = attention, not content; links can be gamed — treat as a lead.)");
+  }
+  if (r.excluded && r.excluded.count > 0) {
+    out.push(`  excluded by your topic's exclude list: ${r.excluded.count} item(s)`);
+    for (const s of r.excluded.sample) {
+      out.push(`    [${s.source}, matched "${s.matched_term}"] ${s.text.slice(0, 100)}`);
+    }
   }
   return out;
 }

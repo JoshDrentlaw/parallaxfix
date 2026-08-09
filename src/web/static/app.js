@@ -176,6 +176,16 @@ function renderCoverage(c) {
       ),
     );
   }
+  if (c.excluded && c.excluded.count > 0) {
+    row.append(
+      el(
+        "span",
+        { class: "cov-pill warn", title: "dropped by this topic's exclude list before scoring" },
+        el("span", { class: "dot" }),
+        `${c.excluded.count} excluded`,
+      ),
+    );
+  }
   row.append(el("span", { class: "coverage-toggle", text: "coverage details" }));
   details.append(el("summary", {}, row));
 
@@ -213,6 +223,30 @@ function renderCoverage(c) {
       class: "signal-note",
       text: "references = attention, not content; links can be gamed — treat as a lead.",
     }));
+  }
+  // A topic's own exclude list is a self-inflicted coverage gap (P1): show
+  // what it actually dropped, not just a count, so over-excluding is
+  // something you can catch by looking, not something you have to trust.
+  if (c.excluded && c.excluded.count > 0) {
+    const block = el("div", { class: "excluded-block" });
+    block.append(el("p", {
+      class: "heading",
+      text: `Excluded by your topic's exclude list: ${c.excluded.count} item(s)` +
+        (c.excluded.sample.length < c.excluded.count
+          ? ` (showing ${c.excluded.sample.length})`
+          : ""),
+    }));
+    for (const s of c.excluded.sample) {
+      block.append(
+        el(
+          "div",
+          { class: "excluded-sample" },
+          el("span", { class: "term", text: `"${s.matched_term}"` }),
+          el("span", { class: "text", text: `[${s.source}] ${s.text}` }),
+        ),
+      );
+    }
+    detail.append(block);
   }
   details.append(detail);
   return details;
@@ -294,7 +328,72 @@ function provenanceLine(e) {
 // the first narrative opens by default — a run with a dozen-plus narratives
 // still opens as a short, scannable list of headlines instead of everything
 // unrolled at once.
-function renderNarrative(n, i, provenance) {
+// ── quick-exclude: a one-click escape hatch from inside a narrative you
+//    immediately recognize as off-topic, without leaving the briefing to open
+//    the topic manager. Saves directly (PUT), unlike the AI-suggested
+//    excludes (suggestExcludesFromNoise) — this is the user's own explicit
+//    judgment call on a specific narrative in front of them, not a guess
+//    needing review. The term is editable before confirming since a
+//    narrative's LLM-generated label is often too long or too specific to be
+//    a good substring match against raw post text (isExcluded in
+//    src/ingestion/topic.ts matches literal substrings). ───────────────────
+
+function quickExcludeControl(narrative, topicId) {
+  const wrap = el("div", { class: "quick-exclude" });
+  const btn = el("button", {
+    type: "button",
+    class: "quick-exclude-btn",
+    text: "Not relevant? Quick-exclude",
+  });
+  const status = el("span", { class: "tm-status" });
+  wrap.append(btn, status);
+
+  btn.addEventListener("click", () => {
+    if (wrap.querySelector(".quick-exclude-form")) return;
+    btn.hidden = true;
+    const form = el("div", { class: "quick-exclude-form" });
+    const input = el("input", { type: "text", value: narrative.label || "" });
+    const confirmBtn = el("button", { type: "button", class: "primary", text: "Add to exclude" });
+    const cancelBtn = el("button", { type: "button", text: "Cancel" });
+    form.append(input, confirmBtn, cancelBtn);
+    wrap.append(form);
+    input.focus();
+    input.select();
+
+    const closeForm = () => {
+      form.remove();
+      btn.hidden = false;
+    };
+    cancelBtn.addEventListener("click", closeForm);
+
+    confirmBtn.addEventListener("click", async () => {
+      const term = input.value.trim();
+      if (!term) return;
+      confirmBtn.disabled = true;
+      try {
+        const topic = await get(`api/topics/${encodeURIComponent(topicId)}`);
+        const existing = topic.exclude || [];
+        if (!existing.some((e) => e.toLowerCase() === term.toLowerCase())) {
+          await put(`api/topics/${encodeURIComponent(topicId)}`, {
+            exclude: [...existing, term].join(", "),
+          });
+        }
+        closeForm();
+        setStatus(status, `excluded "${term}" — rerun the briefing to apply it`, true);
+        // Keep the topic manager's exclude field in sync if it's open on this topic right now.
+        if ($("#topic-select").value === topicId) {
+          $("#tm-edit-exclude").value = [...existing, term].join(", ");
+        }
+      } catch (err) {
+        confirmBtn.disabled = false;
+        setStatus(status, err.message, false);
+      }
+    });
+  });
+  return wrap;
+}
+
+function renderNarrative(n, i, provenance, savedTopicId) {
   const details = el("details", { class: "narrative", id: `narrative-${n.cluster_id}` });
   if (i === 0) details.open = true;
 
@@ -345,6 +444,8 @@ function renderNarrative(n, i, provenance) {
   const body = el("div", { class: "narrative-body" });
   const inner = el("div", { class: "narrative-body-inner" });
 
+  if (savedTopicId) inner.append(quickExcludeControl(n, savedTopicId));
+
   if (n.representative_item_ids.length) {
     inner.append(el("div", { class: "evidence-label", text: "Representative posts" }));
     for (const id of n.representative_item_ids) {
@@ -394,7 +495,7 @@ function renderNarrative(n, i, provenance) {
   return details;
 }
 
-function renderBriefing(b) {
+function renderBriefing(b, savedTopicId) {
   const out = [];
 
   // Case header: headline, generated-at meta, at-a-glance stat tiles, and
@@ -487,7 +588,7 @@ function renderBriefing(b) {
       }),
     );
   }
-  b.narratives.forEach((n, i) => out.push(renderNarrative(n, i, b.provenance)));
+  b.narratives.forEach((n, i) => out.push(renderNarrative(n, i, b.provenance, savedTopicId)));
   return out;
 }
 
@@ -559,7 +660,7 @@ async function runUpdate() {
     await post("api/gather", body);
     setBusy("clustering, labeling, extracting claims — the Haiku batch step can take a while…");
     const briefing = await post("api/brief", body);
-    $("#results").replaceChildren(...renderBriefing(briefing));
+    $("#results").replaceChildren(...renderBriefing(briefing, $("#topic-select").value || null));
     focusResults();
     await loadBriefingsLibrary($("#topic-select").value);
     await loadHomeView();
@@ -646,7 +747,9 @@ async function viewStoredBriefing(id) {
   setBusy("loading saved briefing…");
   try {
     const briefing = await get(`api/briefings/${encodeURIComponent(id)}`);
-    $("#results").replaceChildren(...renderBriefing(briefing));
+    // The briefings library is scoped to saved topics only (see the section
+    // comment above), so briefing.topic_id is always a real saved topic id.
+    $("#results").replaceChildren(...renderBriefing(briefing, briefing.topic_id));
     focusResults();
   } catch (err) {
     showError(err);
@@ -827,6 +930,8 @@ async function createNewTopic() {
     newTopicFeeds = [];
     renderNewFeedList();
     renderFeedCheck($("#tm-new-feed-result"), null);
+    $("#tm-new-suggest-result").replaceChildren();
+    setStatus($("#tm-new-suggest-status"), "");
     await loadTopics(created.id);
     await loadTopicForEdit(created.id);
     switchTab("edit");
@@ -870,6 +975,10 @@ async function loadTopicForEdit(id) {
     form.hidden = false;
     $("#tm-edit-fact-drafts").replaceChildren();
     setStatus($("#tm-edit-fact-draft-status"), "");
+    $("#tm-edit-suggest-result").replaceChildren();
+    setStatus($("#tm-edit-suggest-status"), "");
+    $("#tm-edit-exclude-suggestions").replaceChildren();
+    setStatus($("#tm-edit-exclude-suggest-status"), "");
     loadTopicTags(id);
     loadTopicFacts(id);
   } catch {
@@ -1213,6 +1322,171 @@ async function draftBackgroundFacts() {
   }
 }
 
+// ── topic-assist: LLM-drafted keyword/entity/exclude vocabulary. Like the
+//    background-facts auto-draft above, this is draft-and-approve — nothing
+//    is written to the topic until the user clicks an "Add to ..." button,
+//    which merges into the plain text field the manual Save flow already
+//    reads. Exists because a topic's keyword/entity/exclude lists are the
+//    fields hardest to fill in well without already being a domain expert,
+//    unlike the description, which is easy to write regardless. ───────────
+
+function mergeIntoCommaField(selector, values) {
+  const input = $(selector);
+  const existing = input.value.split(",").map((s) => s.trim()).filter(Boolean);
+  const seen = new Set(existing.map((s) => s.toLowerCase()));
+  for (const v of values) {
+    if (!seen.has(v.toLowerCase())) {
+      existing.push(v);
+      seen.add(v.toLowerCase());
+    }
+  }
+  input.value = existing.join(", ");
+}
+
+function renderFieldSuggestions(container, statusEl, suggestions, targets) {
+  const { keywords, entities, exclude, rationale } = suggestions;
+  if (!keywords.length && !entities.length && !exclude.length) {
+    setStatus(statusEl, "no suggestions found", false);
+    container.replaceChildren();
+    return;
+  }
+  setStatus(statusEl, "review before applying", true);
+  const rows = [];
+  for (
+    const [field, values] of [["keywords", keywords], ["entities", entities], [
+      "exclude",
+      exclude,
+    ]]
+  ) {
+    if (!values.length) continue;
+    const btn = el("button", { type: "button", text: `Add to ${field}` });
+    btn.addEventListener("click", () => {
+      mergeIntoCommaField(targets[field], values);
+      btn.disabled = true;
+      btn.textContent = "added";
+    });
+    rows.push(
+      el(
+        "div",
+        { class: "fact-item" },
+        el(
+          "div",
+          { class: "fact-item-body" },
+          el("p", { class: "fact-meta", text: `${field}: ${values.join(", ")}` }),
+        ),
+        btn,
+      ),
+    );
+  }
+  if (rationale) rows.push(el("p", { class: "hint", text: rationale }));
+  container.replaceChildren(...rows);
+}
+
+async function suggestTopicFields(
+  descriptionSelector,
+  keywordsSelector,
+  entitiesSelector,
+  statusSelector,
+  resultSelector,
+  targets,
+) {
+  const status = $(statusSelector);
+  const description = $(descriptionSelector).value.trim();
+  if (!description) {
+    setStatus(status, "write a description first", false);
+    return;
+  }
+  setStatus(status, "thinking…");
+  try {
+    const suggestions = await post("api/topics/suggest-fields", {
+      description,
+      keywords: $(keywordsSelector).value,
+      entities: $(entitiesSelector).value,
+    });
+    renderFieldSuggestions($(resultSelector), status, suggestions, targets);
+  } catch (err) {
+    setStatus(status, err.message, false);
+  }
+}
+
+function suggestNewTopicFields() {
+  return suggestTopicFields(
+    "#tm-new-description",
+    "#tm-new-keywords",
+    "#tm-new-entities",
+    "#tm-new-suggest-status",
+    "#tm-new-suggest-result",
+    { keywords: "#tm-new-keywords", entities: "#tm-new-entities", exclude: "#tm-new-exclude" },
+  );
+}
+
+function suggestEditTopicFields() {
+  return suggestTopicFields(
+    "#tm-edit-description",
+    "#tm-edit-keywords",
+    "#tm-edit-entities",
+    "#tm-edit-suggest-status",
+    "#tm-edit-suggest-result",
+    { keywords: "#tm-edit-keywords", entities: "#tm-edit-entities", exclude: "#tm-edit-exclude" },
+  );
+}
+
+// ── exclude-suggestions: mines the topic's own most recent briefing for
+//    low-relevance ("weak") narratives that cleared retrieval anyway, and
+//    asks Claude which look like genuine noise. Only available once a topic
+//    has been briefed at least once. Same draft-and-approve pattern as
+//    background-facts auto-draft, reusing its factCard renderer. ──────────
+
+async function suggestExcludesFromNoise() {
+  const id = $("#topic-select").value;
+  if (!id) return;
+  const status = $("#tm-edit-exclude-suggest-status");
+  const list = $("#tm-edit-exclude-suggestions");
+  setStatus(status, "reviewing latest briefing…");
+  try {
+    const { weak_narrative_count, suggestions } = await post(
+      `api/topics/${encodeURIComponent(id)}/exclude-suggestions`,
+      {},
+    );
+    if (!weak_narrative_count) {
+      setStatus(status, "no low-relevance narratives in the latest briefing", false);
+      list.replaceChildren();
+      return;
+    }
+    if (!suggestions.length) {
+      setStatus(
+        status,
+        `${weak_narrative_count} low-relevance narrative(s), none look like genuine noise`,
+        true,
+      );
+      list.replaceChildren();
+      return;
+    }
+    setStatus(
+      status,
+      `${suggestions.length} candidate(s) from ${weak_narrative_count} low-relevance narratives`,
+      true,
+    );
+    list.replaceChildren(
+      ...suggestions.map((s) => {
+        const li = factCard(s.term, s.reason, [
+          {
+            label: "Add to exclude",
+            onClick: () => {
+              mergeIntoCommaField("#tm-edit-exclude", [s.term]);
+              li.remove();
+            },
+          },
+          { label: "Discard", onClick: () => li.remove() },
+        ]);
+        return li;
+      }),
+    );
+  } catch (err) {
+    setStatus(status, err.message, false);
+  }
+}
+
 // ── field-description popovers: tap the "?" chip to see what a field is
 //    for. Click-triggered, not hover-only — a tooltip a touch device can't
 //    reach isn't one tap away. Outside-tap or Escape dismisses; opening one
@@ -1392,6 +1666,9 @@ function initTopicManager() {
   $("#tm-edit-new-tag-create").addEventListener("click", createAndAttachTag);
   $("#tm-edit-fact-add").addEventListener("click", addBackgroundFact);
   $("#tm-edit-fact-draft").addEventListener("click", draftBackgroundFacts);
+  $("#tm-new-suggest-fields").addEventListener("click", suggestNewTopicFields);
+  $("#tm-edit-suggest-fields").addEventListener("click", suggestEditTopicFields);
+  $("#tm-edit-exclude-suggest").addEventListener("click", suggestExcludesFromNoise);
   renderNewFeedList();
   loadTopicForEdit($("#topic-select").value);
 }

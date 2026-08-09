@@ -6,12 +6,17 @@ import { computeVelocity } from "../src/analysis/velocity.ts";
 const NOW = new Date("2026-06-29T12:00:00Z");
 const hoursAgo = (h: number) => new Date(NOW.getTime() - h * 3_600_000);
 
-function item(id: string, embedding: number[] | null, createdAt: Date): Item {
+function item(
+  id: string,
+  embedding: number[] | null,
+  createdAt: Date,
+  author: string | null = null,
+): Item {
   return {
     id,
     source: "bluesky",
     source_id: id,
-    author: null,
+    author,
     text: id,
     url: `https://example.com/${id}`,
     created_at: createdAt,
@@ -84,4 +89,52 @@ Deno.test("clusterItems: relevance is the mean topic-similarity of member items"
 
   // Items missing from the map contribute 0; no map at all → relevance 0.
   assertEquals(clusterItems(items, { now: NOW })[0].relevance, 0);
+});
+
+Deno.test("clusterItems: velocity collapses a same-author repost burst to one voice", () => {
+  // Three near-simultaneous posts, same author (e.g. a bot posting sequential
+  // updates) — the same real-world pattern that let an unrelated earthquake
+  // alert outrank a well-corroborated, multi-source story on raw velocity.
+  const items = [
+    item("e1", [1, 0, 0], hoursAgo(0.02), "bot-account"),
+    item("e2", [1, 0, 0], hoursAgo(0.01), "bot-account"),
+    item("e3", [1, 0, 0], hoursAgo(0), "bot-account"),
+  ];
+  const clusters = clusterItems(items, { now: NOW });
+  assertEquals(clusters.length, 1);
+  assertEquals(clusters[0].size, 3); // still 3 items — just not 3 independent voices
+  // Collapsed to one voice at the earliest timestamp (~0.02h ago): span
+  // floored at 1h → velocity 1/hour, not 3/(~0.02h) ≈ 150/hour.
+  assertEquals(clusters[0].velocity, 1);
+});
+
+Deno.test("clusterItems: velocity collapses near-verbatim reposts across different authors", () => {
+  // Same content, reposted seconds apart by two different accounts (e.g. an
+  // auto-translated repost/syndication network) — the same real-world
+  // pattern seen with a press-release item whose briefing text called its own
+  // "highest velocity" figure "a product of rapid reposting, not broad
+  // coverage."
+  const items = [
+    item("d1", [1, 0, 0], hoursAgo(0.01), "account-a"),
+    item("d2", [1, 0, 0], hoursAgo(0), "account-b"),
+  ];
+  const clusters = clusterItems(items, { now: NOW });
+  assertEquals(clusters.length, 1);
+  assertEquals(clusters[0].size, 2);
+  assertEquals(clusters[0].velocity, 1); // one voice, not two
+});
+
+Deno.test("clusterItems: velocity does NOT collapse distinct authors with distinct (merely related) content", () => {
+  // Below the duplicate-voice similarity bar but still above the clustering
+  // threshold — genuinely independent posts about the same narrative must
+  // keep contributing full velocity; broad coverage must not be punished.
+  const items = [
+    item("r1", [1, 0, 0], hoursAgo(0.5), "author-1"),
+    item("r2", [0.85, 0.52, 0], hoursAgo(0), "author-2"),
+  ];
+  const clusters = clusterItems(items, { now: NOW });
+  assertEquals(clusters.length, 1);
+  assertEquals(clusters[0].size, 2);
+  // Both voices count: 2 items, span floored at 1h → 2/hour.
+  assertEquals(clusters[0].velocity, 2);
 });
